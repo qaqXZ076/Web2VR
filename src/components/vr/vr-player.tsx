@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useVRStore } from '@/store/vr-store';
-import type { SelectionRegion } from '@/store/vr-store';
+import type { CropRegion } from '@/store/vr-store';
 import type { StereoLayout, ProjectionType } from '@/lib/vr/vr-presets';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,14 +27,26 @@ import {
   TestTube,
   Info,
   Crop,
-  RectangleHorizontal,
+  MousePointer2,
+  Check,
+  X,
 } from 'lucide-react';
 
 import * as THREE from 'three';
 
+// ====== Drawing state for region selection on the preview ======
+interface DrawingRect {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+}
+
 export function VRPlayer() {
+  // ====== Refs ======
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -42,13 +54,13 @@ export function VRPlayer() {
   const animFrameRef = useRef<number>(0);
   const vrSessionRef = useRef<XRSession | null>(null);
   const meshesRef = useRef<THREE.Mesh[]>([]);
-  // Canvas for cropping the screen capture to selected region
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cropCleanupRef = useRef<(() => void) | null>(null);
 
+  // ====== Store ======
   const {
-    selectionRegion,
-    useFullscreen,
+    cropRegion: storeCropRegion,
+    cropEnabled,
     layout,
     projection,
     fov,
@@ -57,9 +69,11 @@ export function VRPlayer() {
     isVRSupported,
     setIsInVR,
     isInVR,
-    setSelectionRegion,
+    setCropRegion: setStoreCropRegion,
+    setCropEnabled: setStoreCropEnabled,
   } = useVRStore();
 
+  // ====== Local state ======
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -67,24 +81,37 @@ export function VRPlayer() {
   const [showPreview, setShowPreview] = useState(true);
   const [hasVideo, setHasVideo] = useState(false);
   const [captureMode, setCaptureMode] = useState<'none' | 'screen' | 'test'>('none');
-  const [cropEnabled, setCropEnabled] = useState(!!selectionRegion);
-  const [cropRegion, setCropRegion] = useState<SelectionRegion | null>(selectionRegion);
+  // Local crop state (before confirmed to store)
+  const [localCropRegion, setLocalCropRegion] = useState<CropRegion | null>(null);
+  // Drawing state for region selection on the captured preview
+  const [isSelectingRegion, setIsSelectingRegion] = useState(false);
+  const [drawingRect, setDrawingRect] = useState<DrawingRect | null>(null);
+  const [confirmedDrawRect, setConfirmedDrawRect] = useState<{
+    x: number; y: number; width: number; height: number;
+  } | null>(null);
 
-  // Ref to track if test pattern was requested (one-shot)
-  const testPatternRequestedRef = useRef(false);
+  // ====== One-shot flags from landing page ======
+  const autoCaptureRef = useRef(false);
+  const testPatternRef = useRef(false);
   useEffect(() => {
-    if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__vrTestPattern) {
-      delete (window as unknown as Record<string, unknown>).__vrTestPattern;
-      testPatternRequestedRef.current = true;
+    if (typeof window !== 'undefined') {
+      if ((window as unknown as Record<string, unknown>).__vrAutoCapture) {
+        delete (window as unknown as Record<string, unknown>).__vrAutoCapture;
+        autoCaptureRef.current = true;
+      }
+      if ((window as unknown as Record<string, unknown>).__vrTestPattern) {
+        delete (window as unknown as Record<string, unknown>).__vrTestPattern;
+        testPatternRef.current = true;
+      }
     }
   }, []);
 
-  // Camera rotation state for mouse drag
+  // Camera rotation for mouse drag
   const isDragging = useRef(false);
   const prevMouse = useRef({ x: 0, y: 0 });
   const cameraRotation = useRef({ lon: 0, lat: 0 });
 
-  // Initialize Three.js scene
+  // ====== Initialize Three.js ======
   useEffect(() => {
     let mounted = true;
 
@@ -128,7 +155,7 @@ export function VRPlayer() {
       camera.layers.enable(2);
       cameraRef.current = camera;
 
-      // Handle WebXR stereo layers
+      // WebXR stereo layers
       renderer.xr.addEventListener('sessionstart', () => {
         const xrCamera = renderer.xr.getCamera();
         if (xrCamera && xrCamera.cameras.length === 2) {
@@ -152,13 +179,12 @@ export function VRPlayer() {
     return () => { mounted = false; };
   }, [setIsVRSupported]);
 
-  // Build/rebuild VR meshes
+  // ====== Build VR meshes ======
   const buildScene = useCallback(
     (source: HTMLVideoElement | HTMLCanvasElement) => {
       const scene = sceneRef.current;
       if (!scene) return;
 
-      // Clear previous meshes
       meshesRef.current.forEach((mesh) => {
         scene.remove(mesh);
         mesh.geometry.dispose();
@@ -193,15 +219,13 @@ export function VRPlayer() {
     [layout, projection, fov]
   );
 
-  // Create a crop canvas that continuously crops the video to the selected region
+  // ====== Crop canvas: continuously crops video to selected region ======
   const startCropCanvas = useCallback(
-    (video: HTMLVideoElement, region: SelectionRegion) => {
+    (video: HTMLVideoElement, region: CropRegion) => {
       const cropCanvas = document.createElement('canvas');
       cropCanvasRef.current = cropCanvas;
-
       const ctx = cropCanvas.getContext('2d')!;
 
-      // Continuously render the cropped region
       let running = true;
       const renderFrame = () => {
         if (!running) return;
@@ -221,13 +245,12 @@ export function VRPlayer() {
       };
       renderFrame();
 
-      // Return cleanup function
       return () => { running = false; };
     },
     []
   );
 
-  // Generate test pattern
+  // ====== Generate test pattern ======
   const generateTestPattern = useCallback((): HTMLCanvasElement => {
     const canvas = document.createElement('canvas');
     canvas.width = 3840;
@@ -289,37 +312,38 @@ export function VRPlayer() {
     return canvas;
   }, []);
 
-  // Auto-load test pattern if requested from URL input
+  // ====== Auto-actions from landing page ======
+  // Test pattern can be loaded immediately
   useEffect(() => {
-    if (!testPatternRequestedRef.current || isInitializing) return;
+    if (isInitializing) return;
 
-    const testCanvas = generateTestPattern();
-    buildScene(testCanvas);
+    if (testPatternRef.current) {
+      testPatternRef.current = false;
+      const testCanvas = generateTestPattern();
+      buildScene(testCanvas);
+      queueMicrotask(() => {
+        setHasVideo(true);
+        setIsPlaying(true);
+        setVideoError(null);
+        setCaptureMode('test');
+        setStoreCropEnabled(false);
+      });
+    }
+  }, [isInitializing, generateTestPattern, buildScene, setStoreCropEnabled]);
 
-    // Use a microtask to avoid synchronous setState in effect body
-    queueMicrotask(() => {
-      setHasVideo(true);
-      setIsPlaying(true);
-      setVideoError(null);
-      setCaptureMode('test');
-      setCropEnabled(false);
-    });
-  }, [isInitializing, generateTestPattern, buildScene]);
-
-  // Rebuild meshes when VR settings change
+  // ====== Rebuild meshes when VR settings change ======
   useEffect(() => {
     const video = videoRef.current;
     if (!video || video.readyState < 2) return;
 
-    // If crop is enabled, use the crop canvas
-    if (cropEnabled && cropRegion && cropCanvasRef.current) {
+    if (cropEnabled && storeCropRegion && cropCanvasRef.current) {
       buildScene(cropCanvasRef.current);
     } else {
       buildScene(video);
     }
-  }, [layout, projection, fov, buildScene, cropEnabled, cropRegion]);
+  }, [layout, projection, fov, buildScene, cropEnabled, storeCropRegion]);
 
-  // Animation loop
+  // ====== Animation loop ======
   useEffect(() => {
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate);
@@ -336,7 +360,7 @@ export function VRPlayer() {
     };
   }, []);
 
-  // Handle resize
+  // ====== Handle resize ======
   useEffect(() => {
     const handleResize = () => {
       const renderer = rendererRef.current;
@@ -355,7 +379,7 @@ export function VRPlayer() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Screen capture mode (PRIMARY METHOD)
+  // ====== Screen Capture (PRIMARY METHOD) ======
   const handleScreenCapture = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -374,11 +398,10 @@ export function VRPlayer() {
       setCaptureMode('screen');
       setVideoError(null);
 
-      // If there's a crop region from page viewer selection, start the crop canvas
-      if (cropEnabled && cropRegion) {
-        const cleanup = startCropCanvas(video, cropRegion);
+      // If there's already a crop region, use it
+      if (cropEnabled && storeCropRegion) {
+        const cleanup = startCropCanvas(video, storeCropRegion);
         cropCleanupRef.current = cleanup;
-        // Wait a frame for the crop canvas to start rendering
         await new Promise((r) => requestAnimationFrame(r));
         buildScene(cropCanvasRef.current!);
       } else {
@@ -392,6 +415,9 @@ export function VRPlayer() {
         setCaptureMode('none');
         setIsPlaying(false);
         setHasVideo(false);
+        setLocalCropRegion(null);
+        setStoreCropRegion(null);
+        setStoreCropEnabled(false);
         if (cropCleanupRef.current) {
           cropCleanupRef.current();
           cropCleanupRef.current = null;
@@ -400,9 +426,19 @@ export function VRPlayer() {
     } catch {
       setVideoError('Screen capture was cancelled or failed. Please try again.');
     }
-  }, [buildScene, startCropCanvas, cropEnabled, cropRegion]);
+  }, [buildScene, startCropCanvas, cropEnabled, storeCropRegion, setStoreCropRegion, setStoreCropEnabled]);
 
-  // Handle test pattern
+  // ====== Auto screen capture from landing page ======
+  useEffect(() => {
+    if (isInitializing || !autoCaptureRef.current) return;
+    autoCaptureRef.current = false;
+    const timer = setTimeout(() => {
+      handleScreenCapture();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [isInitializing, handleScreenCapture]);
+
+  // ====== Test pattern ======
   const handleTestPattern = useCallback(() => {
     const testCanvas = generateTestPattern();
     buildScene(testCanvas);
@@ -410,10 +446,11 @@ export function VRPlayer() {
     setIsPlaying(true);
     setVideoError(null);
     setCaptureMode('test');
-    setCropEnabled(false);
-  }, [buildScene, generateTestPattern]);
+    setStoreCropEnabled(false);
+    setLocalCropRegion(null);
+  }, [buildScene, generateTestPattern, setStoreCropEnabled]);
 
-  // Enter VR
+  // ====== Enter VR ======
   const handleEnterVR = useCallback(async () => {
     const renderer = rendererRef.current;
     const camera = cameraRef.current;
@@ -446,12 +483,10 @@ export function VRPlayer() {
     }
   }, [setIsInVR]);
 
-  // Fullscreen
   const handleEnterFullscreen = useCallback(() => {
     containerRef.current?.requestFullscreen();
   }, []);
 
-  // Play/Pause
   const handlePlayPause = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -459,7 +494,6 @@ export function VRPlayer() {
     else { video.pause(); setIsPlaying(false); }
   }, []);
 
-  // Mute/Unmute
   const handleMuteToggle = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -467,28 +501,135 @@ export function VRPlayer() {
     setIsMuted(video.muted);
   }, []);
 
-  // Toggle crop
-  const handleToggleCrop = useCallback(() => {
-    if (cropEnabled) {
-      setCropEnabled(false);
-      setCropRegion(null);
-      setSelectionRegion(null);
+  // ====== Region selection on the captured video preview ======
+  const handleStartRegionSelect = useCallback(() => {
+    setIsSelectingRegion(true);
+    setDrawingRect(null);
+    setConfirmedDrawRect(null);
+  }, []);
+
+  const handleCancelRegionSelect = useCallback(() => {
+    setIsSelectingRegion(false);
+    setDrawingRect(null);
+    setConfirmedDrawRect(null);
+  }, []);
+
+  const handlePreviewMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isSelectingRegion) return;
+      const rect = previewContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setDrawingRect({
+        startX: e.clientX - rect.left,
+        startY: e.clientY - rect.top,
+        endX: e.clientX - rect.left,
+        endY: e.clientY - rect.top,
+      });
+      setConfirmedDrawRect(null);
+    },
+    [isSelectingRegion]
+  );
+
+  const handlePreviewMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isSelectingRegion || !drawingRect) return;
+      const rect = previewContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+      const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+      setDrawingRect((prev) =>
+        prev ? { ...prev, endX: x, endY: y } : null
+      );
+    },
+    [isSelectingRegion, drawingRect]
+  );
+
+  const handlePreviewMouseUp = useCallback(() => {
+    if (!isSelectingRegion || !drawingRect) return;
+    const w = Math.abs(drawingRect.endX - drawingRect.startX);
+    const h = Math.abs(drawingRect.endY - drawingRect.startY);
+    if (w > 10 && h > 10) {
+      setConfirmedDrawRect({
+        x: Math.min(drawingRect.startX, drawingRect.endX),
+        y: Math.min(drawingRect.startY, drawingRect.endY),
+        width: w,
+        height: h,
+      });
+    }
+  }, [isSelectingRegion, drawingRect]);
+
+  // Confirm the drawn region and apply crop
+  const handleConfirmRegion = useCallback(() => {
+    if (!confirmedDrawRect || !previewContainerRef.current) return;
+    const containerRect = previewContainerRef.current.getBoundingClientRect();
+    const region: CropRegion = {
+      x: confirmedDrawRect.x / containerRect.width,
+      y: confirmedDrawRect.y / containerRect.height,
+      width: confirmedDrawRect.width / containerRect.width,
+      height: confirmedDrawRect.height / containerRect.height,
+    };
+
+    setLocalCropRegion(region);
+    setStoreCropRegion(region);
+    setStoreCropEnabled(true);
+    setIsSelectingRegion(false);
+    setDrawingRect(null);
+    setConfirmedDrawRect(null);
+
+    // Start crop canvas if we have a video
+    const video = videoRef.current;
+    if (video && video.readyState >= 2) {
+      // Clean up previous crop
       if (cropCleanupRef.current) {
         cropCleanupRef.current();
         cropCleanupRef.current = null;
       }
-      // Rebuild without crop
+      const cleanup = startCropCanvas(video, region);
+      cropCleanupRef.current = cleanup;
+      // Wait a frame then rebuild scene with crop canvas
+      requestAnimationFrame(() => {
+        if (cropCanvasRef.current) {
+          buildScene(cropCanvasRef.current);
+        }
+      });
+    }
+  }, [confirmedDrawRect, setStoreCropRegion, setStoreCropEnabled, startCropCanvas, buildScene]);
+
+  // Toggle crop on/off
+  const handleToggleCrop = useCallback(() => {
+    if (cropEnabled) {
+      // Disable crop
+      setStoreCropEnabled(false);
+      setStoreCropRegion(null);
+      setLocalCropRegion(null);
+      if (cropCleanupRef.current) {
+        cropCleanupRef.current();
+        cropCleanupRef.current = null;
+      }
       const video = videoRef.current;
       if (video && video.readyState >= 2) {
         buildScene(video);
       }
+    } else if (localCropRegion) {
+      // Re-enable with saved region
+      setStoreCropEnabled(true);
+      const video = videoRef.current;
+      if (video && video.readyState >= 2) {
+        const cleanup = startCropCanvas(video, localCropRegion);
+        cropCleanupRef.current = cleanup;
+        requestAnimationFrame(() => {
+          if (cropCanvasRef.current) {
+            buildScene(cropCanvasRef.current);
+          }
+        });
+      }
     } else {
-      // Enable crop - user needs to go back to page viewer to select a region
-      setCropEnabled(true);
+      // No region saved - prompt to select
+      setIsSelectingRegion(true);
     }
-  }, [cropEnabled, buildScene, setSelectionRegion]);
+  }, [cropEnabled, localCropRegion, setStoreCropEnabled, setStoreCropRegion, startCropCanvas, buildScene]);
 
-  // Go back
+  // ====== Go back ======
   const handleGoBack = useCallback(() => {
     const video = videoRef.current;
     if (video) { video.pause(); video.src = ''; video.srcObject = null; videoRef.current = null; }
@@ -496,10 +637,10 @@ export function VRPlayer() {
     const renderer = rendererRef.current;
     if (renderer) { renderer.dispose(); rendererRef.current = null; }
     setHasVideo(false);
-    setMode('input');
+    setMode('landing');
   }, [setMode]);
 
-  // Keyboard shortcuts
+  // ====== Keyboard shortcuts ======
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -514,7 +655,7 @@ export function VRPlayer() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handlePlayPause, handleEnterFullscreen, handleMuteToggle, isInVR]);
 
-  // Mouse drag
+  // ====== Mouse drag on VR canvas ======
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     isDragging.current = true;
     prevMouse.current = { x: e.clientX, y: e.clientY };
@@ -546,25 +687,40 @@ export function VRPlayer() {
     captureMode === 'screen' ? 'Screen Capture' :
     captureMode === 'test' ? 'Test Pattern' : 'No Source';
 
+  // Compute drawing rect styles
+  const drawingStyle = drawingRect
+    ? {
+        left: `${Math.min(drawingRect.startX, drawingRect.endX)}px`,
+        top: `${Math.min(drawingRect.startY, drawingRect.endY)}px`,
+        width: `${Math.abs(drawingRect.endX - drawingRect.startX)}px`,
+        height: `${Math.abs(drawingRect.endY - drawingRect.startY)}px`,
+      }
+    : null;
+
+  const confirmedStyle = confirmedDrawRect
+    ? {
+        left: `${confirmedDrawRect.x}px`,
+        top: `${confirmedDrawRect.y}px`,
+        width: `${confirmedDrawRect.width}px`,
+        height: `${confirmedDrawRect.height}px`,
+      }
+    : null;
+
   return (
     <TooltipProvider>
       <div className="w-full space-y-4">
         {/* Top bar */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={handleGoBack}>
               <ArrowLeft className="w-4 h-4 mr-1" /> Back
             </Button>
             <div className="h-4 w-px bg-border" />
             <Badge variant="outline" className="text-xs">{captureModeLabel}</Badge>
-            {cropEnabled && cropRegion && (
+            {cropEnabled && storeCropRegion && (
               <Badge variant="outline" className="text-xs">
-                <Crop className="w-3 h-3 mr-1" /> Crop: {Math.round(cropRegion.width * 100)}% × {Math.round(cropRegion.height * 100)}%
-              </Badge>
-            )}
-            {useFullscreen && !cropEnabled && (
-              <Badge variant="outline" className="text-xs">
-                <RectangleHorizontal className="w-3 h-3 mr-1" /> Full Page
+                <Crop className="w-3 h-3 mr-1" />
+                Crop: {Math.round(storeCropRegion.width * 100)}%×{Math.round(storeCropRegion.height * 100)}%
               </Badge>
             )}
             {isInVR && (
@@ -602,11 +758,124 @@ export function VRPlayer() {
           </Card>
         )}
 
+        {/* Captured video preview with region selection */}
+        {hasVideo && captureMode === 'screen' && !isInVR && (
+          <Card>
+            <CardContent className="pt-4 pb-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">Captured Screen Preview</p>
+                <div className="flex items-center gap-2">
+                  {isSelectingRegion ? (
+                    <>
+                      <span className="text-xs text-muted-foreground">
+                        Draw a rectangle around the video area
+                      </span>
+                      {confirmedDrawRect && (
+                        <Button size="sm" onClick={handleConfirmRegion}>
+                          <Check className="w-3.5 h-3.5 mr-1" /> Apply Crop
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={handleCancelRegionSelect}>
+                        <X className="w-3.5 h-3.5 mr-1" /> Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop}>
+                        <MousePointer2 className="w-3.5 h-3.5 mr-1" />
+                        {cropEnabled ? 'Reset Region' : 'Select Region'}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={handleScreenCapture}>
+                        <Monitor className="w-3.5 h-3.5 mr-1" /> Re-capture
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview with drawing overlay */}
+              <div
+                ref={previewContainerRef}
+                className={`relative rounded-lg overflow-hidden bg-black border ${
+                  isSelectingRegion ? 'cursor-crosshair' : ''
+                }`}
+                style={{ height: '200px' }}
+                onMouseDown={handlePreviewMouseDown}
+                onMouseMove={handlePreviewMouseMove}
+                onMouseUp={handlePreviewMouseUp}
+              >
+                {/* Show the captured video element */}
+                <video
+                  ref={(el) => {
+                    if (el && videoRef.current && videoRef.current.srcObject) {
+                      el.srcObject = videoRef.current.srcObject;
+                      el.muted = true;
+                      el.play().catch(() => {});
+                    }
+                  }}
+                  className="w-full h-full object-contain"
+                  muted
+                  playsInline
+                />
+
+                {/* Drawing rectangle (while dragging) */}
+                {drawingStyle && !confirmedDrawRect && (
+                  <div
+                    className="absolute border-2 border-dashed border-primary bg-primary/10 z-10"
+                    style={drawingStyle}
+                  >
+                    <div className="absolute -top-5 left-0 text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded whitespace-nowrap">
+                      {Math.round(Math.abs(drawingRect!.endX - drawingRect!.startX))}×{Math.round(Math.abs(drawingRect!.endY - drawingRect!.startY))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Confirmed rectangle with overlay */}
+                {confirmedStyle && confirmedDrawRect && (
+                  <div className="absolute inset-0 z-10">
+                    <div className="absolute inset-0 bg-black/50" />
+                    <div
+                      className="absolute border-2 border-primary bg-transparent"
+                      style={confirmedStyle}
+                    >
+                      <div className="absolute -top-5 left-0 text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded whitespace-nowrap">
+                        {Math.round(confirmedDrawRect.width)}×{Math.round(confirmedDrawRect.height)} px
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Current crop region indicator */}
+                {cropEnabled && storeCropRegion && !isSelectingRegion && (
+                  <div className="absolute inset-0 z-10 pointer-events-none">
+                    <div className="absolute inset-0 bg-black/30" />
+                    <div
+                      className="absolute border-2 border-green-500 bg-transparent"
+                      style={{
+                        left: `${storeCropRegion.x * 100}%`,
+                        top: `${storeCropRegion.y * 100}%`,
+                        width: `${storeCropRegion.width * 100}%`,
+                        height: `${storeCropRegion.height * 100}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {!isSelectingRegion && !cropEnabled && (
+                <p className="text-xs text-muted-foreground">
+                  💡 Use <strong>Select Region</strong> to crop the video area if the VR video doesn&apos;t fill the entire captured screen.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* VR Canvas */}
         <div
           ref={containerRef}
           className="relative rounded-lg overflow-hidden bg-black border"
-          style={{ height: showPreview ? '65vh' : '100vh' }}
+          style={{ height: showPreview ? '60vh' : '100vh' }}
         >
           <canvas
             ref={canvasRef}
@@ -630,11 +899,10 @@ export function VRPlayer() {
             <div className="absolute inset-0 flex items-center justify-center bg-black/80">
               <div className="text-center space-y-3">
                 <Monitor className="w-12 h-12 text-muted-foreground mx-auto" />
-                <p className="text-sm text-muted-foreground">Ready to capture</p>
+                <p className="text-sm text-muted-foreground">No video source</p>
                 <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                  Click &quot;Capture&quot; below to capture a browser tab or window playing your VR video.
-                  {cropRegion && ' The selected region will be cropped automatically.'}
-                  {!cropRegion && ' The entire captured area will be used as the VR source.'}
+                  Click &quot;Capture&quot; below to capture a browser tab playing your VR video,
+                  or load the test pattern to preview the VR player.
                 </p>
                 <div className="flex gap-2 justify-center">
                   <Button size="sm" onClick={handleScreenCapture}>
@@ -676,20 +944,18 @@ export function VRPlayer() {
               </TooltipTrigger>
               <TooltipContent>Mute / Unmute</TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop} aria-label="Toggle crop">
-                  <Crop className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {cropEnabled
-                  ? 'Disable crop (show full frame)'
-                  : cropRegion
-                    ? 'Enable crop (use selected region)'
-                    : 'No region selected — go back to select one'}
-              </TooltipContent>
-            </Tooltip>
+            {captureMode === 'screen' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop} aria-label="Toggle crop">
+                    <Crop className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {cropEnabled ? 'Disable crop (full frame)' : 'Select region to crop'}
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -699,7 +965,7 @@ export function VRPlayer() {
                   <TestTube className="w-4 h-4" /><span className="hidden sm:inline ml-1">Demo</span>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Load test pattern for VR preview</TooltipContent>
+              <TooltipContent>Load test pattern</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -707,7 +973,7 @@ export function VRPlayer() {
                   <Monitor className="w-4 h-4 mr-1" /> Capture
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Capture screen/window for VR (primary method)</TooltipContent>
+              <TooltipContent>Capture screen/window for VR</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -724,7 +990,7 @@ export function VRPlayer() {
                     <Glasses className="w-4 h-4 mr-1" /> Enter VR
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Enter immersive VR mode (requires headset)</TooltipContent>
+                <TooltipContent>Enter immersive VR mode</TooltipContent>
               </Tooltip>
             )}
           </div>

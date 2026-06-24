@@ -95,3 +95,31 @@ Stage Summary:
 - Screen Capture is the primary method for getting video content into VR
 - Region selection from page viewer is carried over to VR player for cropping
 - Test pattern demo mode still works correctly
+---
+Task ID: 10
+Agent: Main
+Task: Complete redesign - remove proxy/iframe, use Screen Capture as primary method with inline crop
+
+Work Log:
+- Completely removed the proxy/iframe approach (deleted url-input.tsx, page-viewer.tsx, api/proxy/route.ts)
+- Created new landing-page.tsx with "How It Works" guide, "Start Screen Capture" and "Load Test Pattern" buttons, Quick Start Guide
+- Simplified VR store: removed pageUrl, isPageLoading, selectionMode, videoSource, useFullscreen; added cropEnabled, cropRegion
+- Simplified AppMode from 3 modes (input/preview/vr) to 2 modes (landing/player)
+- Rewrote vr-player.tsx with:
+  - Screen Capture as the PRIMARY method (no proxy, no iframe)
+  - Inline video preview after capture showing the captured screen
+  - Region selection directly on the captured preview (draw a rectangle around the video area)
+  - "Select Region" / "Apply Crop" / "Reset Region" workflow
+  - Crop is applied via a continuously-renderering crop canvas
+  - Auto-capture from landing page (clicking "Start Screen Capture" goes to player and triggers capture)
+  - Auto-test-pattern from landing page
+- Updated page.tsx for new 2-mode flow (landing/player)
+- All lint checks pass
+- Browser verification: all 10 checkpoints pass
+
+Stage Summary:
+- No more proxy/iframe at all - completely avoids 412/CORS errors
+- User opens video in another browser tab, captures that tab via Screen Capture API
+- After capture, user can draw a region on the preview to crop to the video area
+- Simpler, more reliable flow that works with any website (Bilibili, YouTube, etc.)
+- Two-step flow: Landing → VR Player (with capture + crop + settings)

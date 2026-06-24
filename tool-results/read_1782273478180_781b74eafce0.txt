@@ -1,0 +1,848 @@
+     1→'use client';
+     2→
+     3→import { useRef, useEffect, useState, useCallback } from 'react';
+     4→import { useVRStore } from '@/store/vr-store';
+     5→import type { SelectionRegion } from '@/store/vr-store';
+     6→import type { StereoLayout, ProjectionType } from '@/lib/vr/vr-presets';
+     7→import { Button } from '@/components/ui/button';
+     8→import { Card, CardContent } from '@/components/ui/card';
+     9→import { Badge } from '@/components/ui/badge';
+    10→import {
+    11→  Tooltip,
+    12→  TooltipContent,
+    13→  TooltipProvider,
+    14→  TooltipTrigger,
+    15→} from '@/components/ui/tooltip';
+    16→import {
+    17→  ArrowLeft,
+    18→  Glasses,
+    19→  Maximize,
+    20→  Pause,
+    21→  Play,
+    22→  Volume2,
+    23→  VolumeX,
+    24→  RotateCcw,
+    25→  AlertTriangle,
+    26→  Monitor,
+    27→  TestTube,
+    28→  Info,
+    29→  Crop,
+    30→  RectangleHorizontal,
+    31→} from 'lucide-react';
+    32→
+    33→import * as THREE from 'three';
+    34→
+    35→export function VRPlayer() {
+    36→  const canvasRef = useRef<HTMLCanvasElement>(null);
+    37→  const containerRef = useRef<HTMLDivElement>(null);
+    38→  const videoRef = useRef<HTMLVideoElement | null>(null);
+    39→  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+    40→  const sceneRef = useRef<THREE.Scene | null>(null);
+    41→  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+    42→  const animFrameRef = useRef<number>(0);
+    43→  const vrSessionRef = useRef<XRSession | null>(null);
+    44→  const meshesRef = useRef<THREE.Mesh[]>([]);
+    45→  // Canvas for cropping the screen capture to selected region
+    46→  const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    47→  const cropCleanupRef = useRef<(() => void) | null>(null);
+    48→
+    49→  const {
+    50→    selectionRegion,
+    51→    useFullscreen,
+    52→    layout,
+    53→    projection,
+    54→    fov,
+    55→    setMode,
+    56→    setIsVRSupported,
+    57→    isVRSupported,
+    58→    setIsInVR,
+    59→    isInVR,
+    60→    setSelectionRegion,
+    61→  } = useVRStore();
+    62→
+    63→  const [isPlaying, setIsPlaying] = useState(false);
+    64→  const [isMuted, setIsMuted] = useState(false);
+    65→  const [videoError, setVideoError] = useState<string | null>(null);
+    66→  const [isInitializing, setIsInitializing] = useState(true);
+    67→  const [showPreview, setShowPreview] = useState(true);
+    68→  const [hasVideo, setHasVideo] = useState(false);
+    69→  const [captureMode, setCaptureMode] = useState<'none' | 'screen' | 'test'>('none');
+    70→  const [cropEnabled, setCropEnabled] = useState(!!selectionRegion);
+    71→  const [cropRegion, setCropRegion] = useState<SelectionRegion | null>(selectionRegion);
+    72→
+    73→  // Ref to track if test pattern was requested (one-shot)
+    74→  const testPatternRequestedRef = useRef(false);
+    75→  useEffect(() => {
+    76→    if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__vrTestPattern) {
+    77→      delete (window as unknown as Record<string, unknown>).__vrTestPattern;
+    78→      testPatternRequestedRef.current = true;
+    79→    }
+    80→  }, []);
+    81→
+    82→  // Camera rotation state for mouse drag
+    83→  const isDragging = useRef(false);
+    84→  const prevMouse = useRef({ x: 0, y: 0 });
+    85→  const cameraRotation = useRef({ lon: 0, lat: 0 });
+    86→
+    87→  // Initialize Three.js scene
+    88→  useEffect(() => {
+    89→    let mounted = true;
+    90→
+    91→    async function init() {
+    92→      if (!canvasRef.current) return;
+    93→
+    94→      if (navigator.xr) {
+    95→        try {
+    96→          const supported = await navigator.xr.isSessionSupported('immersive-vr');
+    97→          if (mounted) setIsVRSupported(supported);
+    98→        } catch {
+    99→          if (mounted) setIsVRSupported(false);
+   100→        }
+   101→      } else {
+   102→        if (mounted) setIsVRSupported(false);
+   103→      }
+   104→
+   105→      const renderer = new THREE.WebGLRenderer({
+   106→        canvas: canvasRef.current,
+   107→        antialias: true,
+   108→        alpha: false,
+   109→      });
+   110→      renderer.setPixelRatio(window.devicePixelRatio);
+   111→      renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight);
+   112→      renderer.xr.enabled = true;
+   113→      renderer.outputColorSpace = THREE.SRGBColorSpace;
+   114→      rendererRef.current = renderer;
+   115→
+   116→      const scene = new THREE.Scene();
+   117→      scene.background = new THREE.Color(0x111111);
+   118→      sceneRef.current = scene;
+   119→
+   120→      const camera = new THREE.PerspectiveCamera(
+   121→        75,
+   122→        canvasRef.current.clientWidth / canvasRef.current.clientHeight,
+   123→        0.1,
+   124→        2000
+   125→      );
+   126→      camera.position.set(0, 0, 0);
+   127→      camera.layers.enable(1);
+   128→      camera.layers.enable(2);
+   129→      cameraRef.current = camera;
+   130→
+   131→      // Handle WebXR stereo layers
+   132→      renderer.xr.addEventListener('sessionstart', () => {
+   133→        const xrCamera = renderer.xr.getCamera();
+   134→        if (xrCamera && xrCamera.cameras.length === 2) {
+   135→          xrCamera.cameras[0].layers.enable(1);
+   136→          xrCamera.cameras[0].layers.disable(2);
+   137→          xrCamera.cameras[1].layers.enable(2);
+   138→          xrCamera.cameras[1].layers.disable(1);
+   139→        }
+   140→        camera.layers.disable(2);
+   141→      });
+   142→
+   143→      renderer.xr.addEventListener('sessionend', () => {
+   144→        camera.layers.enable(1);
+   145→        camera.layers.enable(2);
+   146→      });
+   147→
+   148→      if (mounted) setIsInitializing(false);
+   149→    }
+   150→
+   151→    init();
+   152→    return () => { mounted = false; };
+   153→  }, [setIsVRSupported]);
+   154→
+   155→  // Build/rebuild VR meshes
+   156→  const buildScene = useCallback(
+   157→    (source: HTMLVideoElement | HTMLCanvasElement) => {
+   158→      const scene = sceneRef.current;
+   159→      if (!scene) return;
+   160→
+   161→      // Clear previous meshes
+   162→      meshesRef.current.forEach((mesh) => {
+   163→        scene.remove(mesh);
+   164→        mesh.geometry.dispose();
+   165→        if (Array.isArray(mesh.material)) {
+   166→          mesh.material.forEach((m) => m.dispose());
+   167→        } else {
+   168→          mesh.material.dispose();
+   169→        }
+   170→      });
+   171→      meshesRef.current = [];
+   172→
+   173→      let texture: THREE.Texture;
+   174→      if (source instanceof HTMLCanvasElement) {
+   175→        texture = new THREE.CanvasTexture(source);
+   176→      } else {
+   177→        texture = new THREE.VideoTexture(source);
+   178→      }
+   179→      texture.minFilter = THREE.LinearFilter;
+   180→      texture.magFilter = THREE.LinearFilter;
+   181→      texture.colorSpace = THREE.SRGBColorSpace;
+   182→
+   183→      const meshes = createVRMeshes(texture, layout, projection, fov);
+   184→      meshes.forEach((mesh) => scene.add(mesh));
+   185→      meshesRef.current = meshes;
+   186→
+   187→      const camera = cameraRef.current;
+   188→      if (camera) {
+   189→        camera.layers.enable(1);
+   190→        camera.layers.enable(2);
+   191→      }
+   192→    },
+   193→    [layout, projection, fov]
+   194→  );
+   195→
+   196→  // Create a crop canvas that continuously crops the video to the selected region
+   197→  const startCropCanvas = useCallback(
+   198→    (video: HTMLVideoElement, region: SelectionRegion) => {
+   199→      const cropCanvas = document.createElement('canvas');
+   200→      cropCanvasRef.current = cropCanvas;
+   201→
+   202→      const ctx = cropCanvas.getContext('2d')!;
+   203→
+   204→      // Continuously render the cropped region
+   205→      let running = true;
+   206→      const renderFrame = () => {
+   207→        if (!running) return;
+   208→        const vw = video.videoWidth || 1920;
+   209→        const vh = video.videoHeight || 1080;
+   210→        const sx = Math.round(vw * region.x);
+   211→        const sy = Math.round(vh * region.y);
+   212→        const sw = Math.round(vw * region.width);
+   213→        const sh = Math.round(vh * region.height);
+   214→
+   215→        if (sw > 0 && sh > 0) {
+   216→          cropCanvas.width = sw;
+   217→          cropCanvas.height = sh;
+   218→          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+   219→        }
+   220→        requestAnimationFrame(renderFrame);
+   221→      };
+   222→      renderFrame();
+   223→
+   224→      // Return cleanup function
+   225→      return () => { running = false; };
+   226→    },
+   227→    []
+   228→  );
+   229→
+   230→  // Generate test pattern
+   231→  const generateTestPattern = useCallback((): HTMLCanvasElement => {
+   232→    const canvas = document.createElement('canvas');
+   233→    canvas.width = 3840;
+   234→    canvas.height = 1920;
+   235→    const ctx = canvas.getContext('2d')!;
+   236→    const halfWidth = canvas.width / 2;
+   237→
+   238→    for (let eye = 0; eye < 2; eye++) {
+   239→      const offsetX = eye * halfWidth;
+   240→      const label = eye === 0 ? 'LEFT EYE' : 'RIGHT EYE';
+   241→      const hue = eye === 0 ? 200 : 0;
+   242→
+   243→      const gradient = ctx.createRadialGradient(
+   244→        offsetX + halfWidth / 2, canvas.height / 2, 50,
+   245→        offsetX + halfWidth / 2, canvas.height / 2, halfWidth / 2
+   246→      );
+   247→      gradient.addColorStop(0, `hsl(${hue}, 30%, 40%)`);
+   248→      gradient.addColorStop(1, `hsl(${hue}, 50%, 10%)`);
+   249→      ctx.fillStyle = gradient;
+   250→      ctx.fillRect(offsetX, 0, halfWidth, canvas.height);
+   251→
+   252→      ctx.strokeStyle = `hsla(${hue}, 60%, 60%, 0.3)`;
+   253→      ctx.lineWidth = 1;
+   254→      for (let x = 0; x < halfWidth; x += 120) {
+   255→        ctx.beginPath(); ctx.moveTo(offsetX + x, 0); ctx.lineTo(offsetX + x, canvas.height); ctx.stroke();
+   256→      }
+   257→      for (let y = 0; y < canvas.height; y += 120) {
+   258→        ctx.beginPath(); ctx.moveTo(offsetX, y); ctx.lineTo(offsetX + halfWidth, y); ctx.stroke();
+   259→      }
+   260→
+   261→      ctx.strokeStyle = `hsla(${hue}, 80%, 80%, 0.8)`;
+   262→      ctx.lineWidth = 3;
+   263→      ctx.beginPath();
+   264→      ctx.moveTo(offsetX + halfWidth / 2 - 60, canvas.height / 2);
+   265→      ctx.lineTo(offsetX + halfWidth / 2 + 60, canvas.height / 2);
+   266→      ctx.moveTo(offsetX + halfWidth / 2, canvas.height / 2 - 60);
+   267→      ctx.lineTo(offsetX + halfWidth / 2, canvas.height / 2 + 60);
+   268→      ctx.stroke();
+   269→
+   270→      ctx.beginPath();
+   271→      ctx.arc(offsetX + halfWidth / 2, canvas.height / 2, 200, 0, Math.PI * 2);
+   272→      ctx.stroke();
+   273→
+   274→      ctx.fillStyle = `hsl(${hue}, 80%, 90%)`;
+   275→      ctx.font = 'bold 64px monospace';
+   276→      ctx.textAlign = 'center';
+   277→      ctx.fillText(label, offsetX + halfWidth / 2, 100);
+   278→
+   279→      ctx.font = '32px monospace';
+   280→      ctx.fillStyle = `hsla(${hue}, 60%, 70%, 0.8)`;
+   281→      [-90, -60, -30, 0, 30, 60, 90].forEach((angle) => {
+   282→        const rad = ((angle - 90) * Math.PI) / 180;
+   283→        ctx.fillText(`${angle}°`,
+   284→          offsetX + halfWidth / 2 + Math.cos(rad) * 400,
+   285→          canvas.height / 2 + Math.sin(rad) * 400
+   286→        );
+   287→      });
+   288→    }
+   289→    return canvas;
+   290→  }, []);
+   291→
+   292→  // Auto-load test pattern if requested from URL input
+   293→  useEffect(() => {
+   294→    if (!testPatternRequestedRef.current || isInitializing) return;
+   295→
+   296→    const testCanvas = generateTestPattern();
+   297→    buildScene(testCanvas);
+   298→
+   299→    // Use a microtask to avoid synchronous setState in effect body
+   300→    queueMicrotask(() => {
+   301→      setHasVideo(true);
+   302→      setIsPlaying(true);
+   303→      setVideoError(null);
+   304→      setCaptureMode('test');
+   305→      setCropEnabled(false);
+   306→    });
+   307→  }, [isInitializing, generateTestPattern, buildScene]);
+   308→
+   309→  // Rebuild meshes when VR settings change
+   310→  useEffect(() => {
+   311→    const video = videoRef.current;
+   312→    if (!video || video.readyState < 2) return;
+   313→
+   314→    // If crop is enabled, use the crop canvas
+   315→    if (cropEnabled && cropRegion && cropCanvasRef.current) {
+   316→      buildScene(cropCanvasRef.current);
+   317→    } else {
+   318→      buildScene(video);
+   319→    }
+   320→  }, [layout, projection, fov, buildScene, cropEnabled, cropRegion]);
+   321→
+   322→  // Animation loop
+   323→  useEffect(() => {
+   324→    const animate = () => {
+   325→      animFrameRef.current = requestAnimationFrame(animate);
+   326→      const renderer = rendererRef.current;
+   327→      const scene = sceneRef.current;
+   328→      const camera = cameraRef.current;
+   329→      if (renderer && scene && camera) {
+   330→        renderer.render(scene, camera);
+   331→      }
+   332→    };
+   333→    animate();
+   334→    return () => {
+   335→      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+   336→    };
+   337→  }, []);
+   338→
+   339→  // Handle resize
+   340→  useEffect(() => {
+   341→    const handleResize = () => {
+   342→      const renderer = rendererRef.current;
+   343→      const camera = cameraRef.current;
+   344→      const container = containerRef.current;
+   345→      if (renderer && camera && container) {
+   346→        const width = container.clientWidth;
+   347→        const height = container.clientHeight;
+   348→        renderer.setSize(width, height);
+   349→        camera.aspect = width / height;
+   350→        camera.updateProjectionMatrix();
+   351→      }
+   352→    };
+   353→    window.addEventListener('resize', handleResize);
+   354→    handleResize();
+   355→    return () => window.removeEventListener('resize', handleResize);
+   356→  }, []);
+   357→
+   358→  // Screen capture mode (PRIMARY METHOD)
+   359→  const handleScreenCapture = useCallback(async () => {
+   360→    try {
+   361→      const stream = await navigator.mediaDevices.getDisplayMedia({
+   362→        video: { width: { ideal: 3840 }, height: { ideal: 2160 } },
+   363→        audio: false,
+   364→      });
+   365→
+   366→      const video = document.createElement('video');
+   367→      video.srcObject = stream;
+   368→      video.playsInline = true;
+   369→      video.muted = true;
+   370→      await video.play();
+   371→
+   372→      videoRef.current = video;
+   373→      setHasVideo(true);
+   374→      setCaptureMode('screen');
+   375→      setVideoError(null);
+   376→
+   377→      // If there's a crop region from page viewer selection, start the crop canvas
+   378→      if (cropEnabled && cropRegion) {
+   379→        const cleanup = startCropCanvas(video, cropRegion);
+   380→        cropCleanupRef.current = cleanup;
+   381→        // Wait a frame for the crop canvas to start rendering
+   382→        await new Promise((r) => requestAnimationFrame(r));
+   383→        buildScene(cropCanvasRef.current!);
+   384→      } else {
+   385→        buildScene(video);
+   386→      }
+   387→
+   388→      setIsPlaying(true);
+   389→
+   390→      const videoTrack = stream.getVideoTracks()[0];
+   391→      videoTrack.onended = () => {
+   392→        setCaptureMode('none');
+   393→        setIsPlaying(false);
+   394→        setHasVideo(false);
+   395→        if (cropCleanupRef.current) {
+   396→          cropCleanupRef.current();
+   397→          cropCleanupRef.current = null;
+   398→        }
+   399→      };
+   400→    } catch {
+   401→      setVideoError('Screen capture was cancelled or failed. Please try again.');
+   402→    }
+   403→  }, [buildScene, startCropCanvas, cropEnabled, cropRegion]);
+   404→
+   405→  // Handle test pattern
+   406→  const handleTestPattern = useCallback(() => {
+   407→    const testCanvas = generateTestPattern();
+   408→    buildScene(testCanvas);
+   409→    setHasVideo(true);
+   410→    setIsPlaying(true);
+   411→    setVideoError(null);
+   412→    setCaptureMode('test');
+   413→    setCropEnabled(false);
+   414→  }, [buildScene, generateTestPattern]);
+   415→
+   416→  // Enter VR
+   417→  const handleEnterVR = useCallback(async () => {
+   418→    const renderer = rendererRef.current;
+   419→    const camera = cameraRef.current;
+   420→    if (!renderer || !navigator.xr || !camera) return;
+   421→
+   422→    try {
+   423→      const session = await navigator.xr.requestSession('immersive-vr', {
+   424→        optionalFeatures: ['local-floor', 'bounded-floor'],
+   425→      });
+   426→      vrSessionRef.current = session;
+   427→
+   428→      session.addEventListener('end', () => {
+   429→        vrSessionRef.current = null;
+   430→        setIsInVR(false);
+   431→        setShowPreview(true);
+   432→        if (camera) {
+   433→          camera.layers.enable(1);
+   434→          camera.layers.enable(2);
+   435→        }
+   436→      });
+   437→
+   438→      await renderer.xr.setSession(session);
+   439→      setIsInVR(true);
+   440→      setShowPreview(false);
+   441→    } catch (err) {
+   442→      console.error('Failed to start VR session:', err);
+   443→      setVideoError(
+   444→        `Failed to enter VR: ${err instanceof Error ? err.message : 'Unknown error'}. Make sure your VR headset is connected and SteamVR is running.`
+   445→      );
+   446→    }
+   447→  }, [setIsInVR]);
+   448→
+   449→  // Fullscreen
+   450→  const handleEnterFullscreen = useCallback(() => {
+   451→    containerRef.current?.requestFullscreen();
+   452→  }, []);
+   453→
+   454→  // Play/Pause
+   455→  const handlePlayPause = useCallback(() => {
+   456→    const video = videoRef.current;
+   457→    if (!video) return;
+   458→    if (video.paused) { video.play(); setIsPlaying(true); }
+   459→    else { video.pause(); setIsPlaying(false); }
+   460→  }, []);
+   461→
+   462→  // Mute/Unmute
+   463→  const handleMuteToggle = useCallback(() => {
+   464→    const video = videoRef.current;
+   465→    if (!video) return;
+   466→    video.muted = !video.muted;
+   467→    setIsMuted(video.muted);
+   468→  }, []);
+   469→
+   470→  // Toggle crop
+   471→  const handleToggleCrop = useCallback(() => {
+   472→    if (cropEnabled) {
+   473→      setCropEnabled(false);
+   474→      setCropRegion(null);
+   475→      setSelectionRegion(null);
+   476→      if (cropCleanupRef.current) {
+   477→        cropCleanupRef.current();
+   478→        cropCleanupRef.current = null;
+   479→      }
+   480→      // Rebuild without crop
+   481→      const video = videoRef.current;
+   482→      if (video && video.readyState >= 2) {
+   483→        buildScene(video);
+   484→      }
+   485→    } else {
+   486→      // Enable crop - user needs to go back to page viewer to select a region
+   487→      setCropEnabled(true);
+   488→    }
+   489→  }, [cropEnabled, buildScene, setSelectionRegion]);
+   490→
+   491→  // Go back
+   492→  const handleGoBack = useCallback(() => {
+   493→    const video = videoRef.current;
+   494→    if (video) { video.pause(); video.src = ''; video.srcObject = null; videoRef.current = null; }
+   495→    if (cropCleanupRef.current) { cropCleanupRef.current(); cropCleanupRef.current = null; }
+   496→    const renderer = rendererRef.current;
+   497→    if (renderer) { renderer.dispose(); rendererRef.current = null; }
+   498→    setHasVideo(false);
+   499→    setMode('input');
+   500→  }, [setMode]);
+   501→
+   502→  // Keyboard shortcuts
+   503→  useEffect(() => {
+   504→    const handleKeyDown = (e: KeyboardEvent) => {
+   505→      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+   506→      switch (e.key) {
+   507→        case ' ': e.preventDefault(); handlePlayPause(); break;
+   508→        case 'f': handleEnterFullscreen(); break;
+   509→        case 'm': handleMuteToggle(); break;
+   510→        case 'Escape': if (isInVR) vrSessionRef.current?.end(); break;
+   511→      }
+   512→    };
+   513→    window.addEventListener('keydown', handleKeyDown);
+   514→    return () => window.removeEventListener('keydown', handleKeyDown);
+   515→  }, [handlePlayPause, handleEnterFullscreen, handleMuteToggle, isInVR]);
+   516→
+   517→  // Mouse drag
+   518→  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+   519→    isDragging.current = true;
+   520→    prevMouse.current = { x: e.clientX, y: e.clientY };
+   521→    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+   522→  }, []);
+   523→
+   524→  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+   525→    if (!isDragging.current) return;
+   526→    const camera = cameraRef.current;
+   527→    if (!camera) return;
+   528→    const dx = e.clientX - prevMouse.current.x;
+   529→    const dy = e.clientY - prevMouse.current.y;
+   530→    cameraRotation.current.lon -= dx * 0.3;
+   531→    cameraRotation.current.lat += dy * 0.3;
+   532→    cameraRotation.current.lat = Math.max(-85, Math.min(85, cameraRotation.current.lat));
+   533→    const phi = ((90 - cameraRotation.current.lat) * Math.PI) / 180;
+   534→    const theta = (cameraRotation.current.lon * Math.PI) / 180;
+   535→    camera.lookAt(new THREE.Vector3(
+   536→      500 * Math.sin(phi) * Math.cos(theta),
+   537→      500 * Math.cos(phi),
+   538→      500 * Math.sin(phi) * Math.sin(theta)
+   539→    ));
+   540→    prevMouse.current = { x: e.clientX, y: e.clientY };
+   541→  }, []);
+   542→
+   543→  const handlePointerUp = useCallback(() => { isDragging.current = false; }, []);
+   544→
+   545→  const captureModeLabel =
+   546→    captureMode === 'screen' ? 'Screen Capture' :
+   547→    captureMode === 'test' ? 'Test Pattern' : 'No Source';
+   548→
+   549→  return (
+   550→    <TooltipProvider>
+   551→      <div className="w-full space-y-4">
+   552→        {/* Top bar */}
+   553→        <div className="flex items-center justify-between">
+   554→          <div className="flex items-center gap-2">
+   555→            <Button variant="ghost" size="sm" onClick={handleGoBack}>
+   556→              <ArrowLeft className="w-4 h-4 mr-1" /> Back
+   557→            </Button>
+   558→            <div className="h-4 w-px bg-border" />
+   559→            <Badge variant="outline" className="text-xs">{captureModeLabel}</Badge>
+   560→            {cropEnabled && cropRegion && (
+   561→              <Badge variant="outline" className="text-xs">
+   562→                <Crop className="w-3 h-3 mr-1" /> Crop: {Math.round(cropRegion.width * 100)}% × {Math.round(cropRegion.height * 100)}%
+   563→              </Badge>
+   564→            )}
+   565→            {useFullscreen && !cropEnabled && (
+   566→              <Badge variant="outline" className="text-xs">
+   567→                <RectangleHorizontal className="w-3 h-3 mr-1" /> Full Page
+   568→              </Badge>
+   569→            )}
+   570→            {isInVR && (
+   571→              <Badge className="bg-green-600 text-white text-xs">
+   572→                <Glasses className="w-3 h-3 mr-1" /> VR Active
+   573→              </Badge>
+   574→            )}
+   575→          </div>
+   576→          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+   577→            <Info className="w-3 h-3" />
+   578→            <span>
+   579→              {layout === 'sbs' ? 'SBS' : layout === 'tb' ? 'TB' : 'Mono'} ·{' '}
+   580→              {projection === 'sphere360' ? '360°' : projection === 'hemisphere180' ? '180°' : 'Cyl'} · {fov}°
+   581→            </span>
+   582→          </div>
+   583→        </div>
+   584→
+   585→        {/* Error */}
+   586→        {videoError && (
+   587→          <Card className="border-destructive/50 bg-destructive/5">
+   588→            <CardContent className="pt-4 pb-4 flex items-start gap-3">
+   589→              <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+   590→              <div className="space-y-2 flex-1">
+   591→                <p className="text-sm text-destructive">{videoError}</p>
+   592→                <div className="flex gap-2 flex-wrap">
+   593→                  <Button size="sm" variant="outline" onClick={handleScreenCapture}>
+   594→                    <Monitor className="w-3 h-3 mr-1" /> Screen Capture
+   595→                  </Button>
+   596→                  <Button size="sm" variant="outline" onClick={handleTestPattern}>
+   597→                    <TestTube className="w-3 h-3 mr-1" /> Test Pattern
+   598→                  </Button>
+   599→                </div>
+   600→              </div>
+   601→            </CardContent>
+   602→          </Card>
+   603→        )}
+   604→
+   605→        {/* VR Canvas */}
+   606→        <div
+   607→          ref={containerRef}
+   608→          className="relative rounded-lg overflow-hidden bg-black border"
+   609→          style={{ height: showPreview ? '65vh' : '100vh' }}
+   610→        >
+   611→          <canvas
+   612→            ref={canvasRef}
+   613→            className="w-full h-full touch-none"
+   614→            onPointerDown={handlePointerDown}
+   615→            onPointerMove={handlePointerMove}
+   616→            onPointerUp={handlePointerUp}
+   617→            onPointerCancel={handlePointerUp}
+   618→          />
+   619→
+   620→          {isInitializing && (
+   621→            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+   622→              <div className="text-center space-y-2">
+   623→                <RotateCcw className="w-8 h-8 animate-spin text-primary mx-auto" />
+   624→                <p className="text-sm text-muted-foreground">Initializing VR player...</p>
+   625→              </div>
+   626→            </div>
+   627→          )}
+   628→
+   629→          {!hasVideo && !isInitializing && !videoError && (
+   630→            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+   631→              <div className="text-center space-y-3">
+   632→                <Monitor className="w-12 h-12 text-muted-foreground mx-auto" />
+   633→                <p className="text-sm text-muted-foreground">Ready to capture</p>
+   634→                <p className="text-xs text-muted-foreground max-w-md mx-auto">
+   635→                  Click &quot;Capture&quot; below to capture a browser tab or window playing your VR video.
+   636→                  {cropRegion && ' The selected region will be cropped automatically.'}
+   637→                  {!cropRegion && ' The entire captured area will be used as the VR source.'}
+   638→                </p>
+   639→                <div className="flex gap-2 justify-center">
+   640→                  <Button size="sm" onClick={handleScreenCapture}>
+   641→                    <Monitor className="w-4 h-4 mr-1" /> Screen Capture
+   642→                  </Button>
+   643→                  <Button size="sm" variant="outline" onClick={handleTestPattern}>
+   644→                    <TestTube className="w-4 h-4 mr-1" /> Test Pattern
+   645→                  </Button>
+   646→                </div>
+   647→              </div>
+   648→            </div>
+   649→          )}
+   650→
+   651→          {hasVideo && showPreview && !isInitializing && (
+   652→            <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+   653→              <p className="text-xs text-white/60 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-sm">
+   654→                Drag to look around · Space: Play/Pause · F: Fullscreen · M: Mute
+   655→              </p>
+   656→            </div>
+   657→          )}
+   658→        </div>
+   659→
+   660→        {/* Controls */}
+   661→        <div className="flex items-center justify-between gap-4">
+   662→          <div className="flex items-center gap-2">
+   663→            <Tooltip>
+   664→              <TooltipTrigger asChild>
+   665→                <Button size="sm" variant="outline" onClick={handlePlayPause} disabled={!hasVideo} aria-label={isPlaying ? 'Pause' : 'Play'}>
+   666→                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+   667→                </Button>
+   668→              </TooltipTrigger>
+   669→              <TooltipContent>Play / Pause</TooltipContent>
+   670→            </Tooltip>
+   671→            <Tooltip>
+   672→              <TooltipTrigger asChild>
+   673→                <Button size="sm" variant="outline" onClick={handleMuteToggle} disabled={!hasVideo} aria-label={isMuted ? 'Unmute' : 'Mute'}>
+   674→                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+   675→                </Button>
+   676→              </TooltipTrigger>
+   677→              <TooltipContent>Mute / Unmute</TooltipContent>
+   678→            </Tooltip>
+   679→            <Tooltip>
+   680→              <TooltipTrigger asChild>
+   681→                <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop} aria-label="Toggle crop">
+   682→                  <Crop className="w-4 h-4" />
+   683→                </Button>
+   684→              </TooltipTrigger>
+   685→              <TooltipContent>
+   686→                {cropEnabled
+   687→                  ? 'Disable crop (show full frame)'
+   688→                  : cropRegion
+   689→                    ? 'Enable crop (use selected region)'
+   690→                    : 'No region selected — go back to select one'}
+   691→              </TooltipContent>
+   692→            </Tooltip>
+   693→          </div>
+   694→
+   695→          <div className="flex items-center gap-2">
+   696→            <Tooltip>
+   697→              <TooltipTrigger asChild>
+   698→                <Button size="sm" variant="outline" onClick={handleTestPattern} aria-label="Load test pattern">
+   699→                  <TestTube className="w-4 h-4" /><span className="hidden sm:inline ml-1">Demo</span>
+   700→                </Button>
+   701→              </TooltipTrigger>
+   702→              <TooltipContent>Load test pattern for VR preview</TooltipContent>
+   703→            </Tooltip>
+   704→            <Tooltip>
+   705→              <TooltipTrigger asChild>
+   706→                <Button size="sm" onClick={handleScreenCapture} aria-label="Screen capture">
+   707→                  <Monitor className="w-4 h-4 mr-1" /> Capture
+   708→                </Button>
+   709→              </TooltipTrigger>
+   710→              <TooltipContent>Capture screen/window for VR (primary method)</TooltipContent>
+   711→            </Tooltip>
+   712→            <Tooltip>
+   713→              <TooltipTrigger asChild>
+   714→                <Button size="sm" variant="outline" onClick={handleEnterFullscreen} aria-label="Enter fullscreen">
+   715→                  <Maximize className="w-4 h-4" /><span className="hidden sm:inline ml-1">Fullscreen</span>
+   716→                </Button>
+   717→              </TooltipTrigger>
+   718→              <TooltipContent>Enter fullscreen mode</TooltipContent>
+   719→            </Tooltip>
+   720→            {isVRSupported && (
+   721→              <Tooltip>
+   722→                <TooltipTrigger asChild>
+   723→                  <Button size="sm" onClick={handleEnterVR}>
+   724→                    <Glasses className="w-4 h-4 mr-1" /> Enter VR
+   725→                  </Button>
+   726→                </TooltipTrigger>
+   727→                <TooltipContent>Enter immersive VR mode (requires headset)</TooltipContent>
+   728→              </Tooltip>
+   729→            )}
+   730→          </div>
+   731→        </div>
+   732→
+   733→        {/* VR not supported */}
+   734→        {!isVRSupported && !isInitializing && (
+   735→          <Card>
+   736→            <CardContent className="pt-4 pb-4">
+   737→              <div className="flex items-start gap-3">
+   738→                <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+   739→                <div className="text-sm space-y-1">
+   740→                  <p className="font-medium">WebXR Not Available</p>
+   741→                  <p className="text-muted-foreground">
+   742→                    WebXR is not supported in this browser. To use VR with SteamVR, open this
+   743→                    page in Chrome/Edge with a VR headset connected. You can still use fullscreen
+   744→                    and screen capture.
+   745→                  </p>
+   746→                  <div className="mt-2 p-2 rounded bg-muted text-xs space-y-1">
+   747→                    <p className="font-medium">Setup Guide:</p>
+   748→                    <ol className="list-decimal list-inside space-y-0.5 text-muted-foreground">
+   749→                      <li>Install SteamVR on your PC</li>
+   750→                      <li>Connect your VR headset</li>
+   751→                      <li>Open this page in Chrome/Edge</li>
+   752→                      <li>Click &quot;Capture&quot; then &quot;Enter VR&quot;</li>
+   753→                    </ol>
+   754→                  </div>
+   755→                </div>
+   756→              </div>
+   757→            </CardContent>
+   758→          </Card>
+   759→        )}
+   760→      </div>
+   761→    </TooltipProvider>
+   762→  );
+   763→}
+   764→
+   765→// ====== Create VR Meshes ======
+   766→
+   767→function createVRMeshes(
+   768→  texture: THREE.Texture,
+   769→  layout: StereoLayout,
+   770→  projection: ProjectionType,
+   771→  fov: number
+   772→): THREE.Mesh[] {
+   773→  const meshes: THREE.Mesh[] = [];
+   774→
+   775→  function createGeometry(phiLength: number): THREE.BufferGeometry {
+   776→    switch (projection) {
+   777→      case 'sphere360':
+   778→        return new THREE.SphereGeometry(500, 80, 40, 0, phiLength);
+   779→      case 'hemisphere180':
+   780→        return new THREE.SphereGeometry(500, 80, 40, 0, phiLength);
+   781→      case 'cylinder': {
+   782→        const fovRad = (fov * Math.PI) / 180;
+   783→        const radius = 500;
+   784→        return new THREE.CylinderGeometry(radius, radius, radius * 0.5625, 64, 1, true, -fovRad / 2 + Math.PI / 2, fovRad);
+   785→      }
+   786→      default:
+   787→        return new THREE.SphereGeometry(500, 80, 40, 0, phiLength);
+   788→    }
+   789→  }
+   790→
+   791→  function modifyUVs(geometry: THREE.BufferGeometry, region: { x: number; y: number; w: number; h: number }): THREE.BufferGeometry {
+   792→    const uvAttr = geometry.getAttribute('uv');
+   793→    if (!uvAttr) return geometry;
+   794→    const uvArray = uvAttr.array as Float32Array;
+   795→    for (let i = 0; i < uvArray.length; i += 2) {
+   796→      uvArray[i] = region.x + uvArray[i] * region.w;
+   797→      uvArray[i + 1] = region.y + uvArray[i + 1] * region.h;
+   798→    }
+   799→    uvAttr.needsUpdate = true;
+   800→    return geometry;
+   801→  }
+   802→
+   803→  const phiLength =
+   804→    projection === 'sphere360' ? 2 * Math.PI :
+   805→    projection === 'hemisphere180' ? Math.PI :
+   806→    (fov * Math.PI) / 180;
+   807→
+   808→  switch (layout) {
+   809→    case 'sbs': {
+   810→      const leftGeom = createGeometry(phiLength);
+   811→      modifyUVs(leftGeom, { x: 0, y: 0, w: 0.5, h: 1 });
+   812→      const leftMesh = new THREE.Mesh(leftGeom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   813→      leftMesh.layers.set(1);
+   814→      meshes.push(leftMesh);
+   815→
+   816→      const rightGeom = createGeometry(phiLength);
+   817→      modifyUVs(rightGeom, { x: 0.5, y: 0, w: 0.5, h: 1 });
+   818→      const rightMesh = new THREE.Mesh(rightGeom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   819→      rightMesh.layers.set(2);
+   820→      meshes.push(rightMesh);
+   821→      break;
+   822→    }
+   823→    case 'tb': {
+   824→      const leftGeom = createGeometry(phiLength);
+   825→      modifyUVs(leftGeom, { x: 0, y: 0.5, w: 1, h: 0.5 });
+   826→      const leftMesh = new THREE.Mesh(leftGeom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   827→      leftMesh.layers.set(1);
+   828→      meshes.push(leftMesh);
+   829→
+   830→      const rightGeom = createGeometry(phiLength);
+   831→      modifyUVs(rightGeom, { x: 0, y: 0, w: 1, h: 0.5 });
+   832→      const rightMesh = new THREE.Mesh(rightGeom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   833→      rightMesh.layers.set(2);
+   834→      meshes.push(rightMesh);
+   835→      break;
+   836→    }
+   837→    case 'mono': {
+   838→      const geom = createGeometry(phiLength);
+   839→      const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   840→      mesh.layers.enable(1);
+   841→      mesh.layers.enable(2);
+   842→      meshes.push(mesh);
+   843→      break;
+   844→    }
+   845→  }
+   846→  return meshes;
+   847→}
+   848→

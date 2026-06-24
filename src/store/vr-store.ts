@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import type { StereoLayout, ProjectionType } from '@/lib/vr/vr-presets';
 
-export type AppMode = 'input' | 'preview' | 'vr';
+export type AppMode = 'landing' | 'player';
 
-/** Region selected by the user on the page (as fractions 0-1 of container size) */
-export interface SelectionRegion {
+/** Crop region as fractions (0-1) of the captured video dimensions */
+export interface CropRegion {
   x: number;
   y: number;
   width: number;
@@ -16,19 +16,13 @@ interface VRState {
   mode: AppMode;
   setMode: (mode: AppMode) => void;
 
-  // URL input
-  pageUrl: string;
-  setPageUrl: (url: string) => void;
-  isPageLoading: boolean;
-  setIsPageLoading: (loading: boolean) => void;
+  // Crop region selected by user on the captured screen (fractional 0-1)
+  cropRegion: CropRegion | null;
+  setCropRegion: (region: CropRegion | null) => void;
 
-  // Region selected by user on the loaded page (fractional 0-1)
-  selectionRegion: SelectionRegion | null;
-  setSelectionRegion: (region: SelectionRegion | null) => void;
-
-  // Whether user chose "full page" instead of selecting a region
-  useFullscreen: boolean;
-  setUseFullscreen: (use: boolean) => void;
+  // Whether crop is enabled
+  cropEnabled: boolean;
+  setCropEnabled: (enabled: boolean) => void;
 
   // VR settings
   layout: StereoLayout;
@@ -52,11 +46,9 @@ interface VRState {
 }
 
 const initialState = {
-  mode: 'input' as AppMode,
-  pageUrl: '',
-  isPageLoading: false,
-  selectionRegion: null as SelectionRegion | null,
-  useFullscreen: false,
+  mode: 'landing' as AppMode,
+  cropRegion: null as CropRegion | null,
+  cropEnabled: false,
   layout: 'sbs' as StereoLayout,
   projection: 'hemisphere180' as ProjectionType,
   fov: 180,
@@ -68,10 +60,8 @@ export const useVRStore = create<VRState>((set) => ({
   ...initialState,
 
   setMode: (mode) => set({ mode }),
-  setPageUrl: (url) => set({ pageUrl: url }),
-  setIsPageLoading: (loading) => set({ isPageLoading: loading }),
-  setSelectionRegion: (region) => set({ selectionRegion: region }),
-  setUseFullscreen: (use) => set({ useFullscreen: use }),
+  setCropRegion: (region) => set({ cropRegion: region }),
+  setCropEnabled: (enabled) => set({ cropEnabled: enabled }),
   setLayout: (layout) => set({ layout }),
   setProjection: (projection) => set({ projection }),
   setFov: (fov) => set({ fov }),
