@@ -5,10 +5,10 @@ import { useVRStore } from '@/store/vr-store';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Globe, Link, Play, TestTube, Glasses, MonitorPlay, Info, Monitor } from 'lucide-react';
+import { Globe, Link, Glasses, TestTube, Monitor, Info, MousePointer2 } from 'lucide-react';
 
 export function URLInput() {
-  const { pageUrl, setPageUrl, setIsPageLoading, setMode, setVideoSource } = useVRStore();
+  const { pageUrl, setPageUrl, setIsPageLoading, setMode, setSelectionRegion, setUseFullscreen } = useVRStore();
   const [inputValue, setInputValue] = useState(pageUrl);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,43 +37,26 @@ export function URLInput() {
 
       setPageUrl(url);
       setIsPageLoading(true);
+      setSelectionRegion(null);
+      setUseFullscreen(false);
       setMode('preview');
     },
-    [inputValue, setPageUrl, setIsPageLoading, setMode]
+    [inputValue, setPageUrl, setIsPageLoading, setMode, setSelectionRegion, setUseFullscreen]
   );
 
-  const handleDirectVideo = useCallback(() => {
-    let url = inputValue.trim();
-    if (!url) {
-      setError('Please enter a video URL');
-      return;
-    }
-
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'https://' + url;
-      setInputValue(url);
-    }
-
-    try {
-      new URL(url);
-    } catch {
-      setError('Invalid URL format');
-      return;
-    }
-
-    setVideoSource({ src: url, width: 0, height: 0, isDirectUrl: true });
+  const handleDirectCapture = useCallback(() => {
+    setSelectionRegion(null);
+    setUseFullscreen(true);
     setMode('vr');
-  }, [inputValue, setVideoSource, setMode]);
+  }, [setSelectionRegion, setUseFullscreen, setMode]);
 
   const handleTestPattern = useCallback(() => {
-    setVideoSource({ src: 'test-pattern', width: 3840, height: 1920, isDirectUrl: true });
+    setSelectionRegion(null);
+    setUseFullscreen(false);
     setMode('vr');
-  }, [setVideoSource, setMode]);
-
-  const handleDirectCapture = useCallback(() => {
-    setVideoSource(null);
-    setMode('vr');
-  }, [setVideoSource, setMode]);
+    // Store a flag so VR player knows to use test pattern
+    (window as unknown as Record<string, unknown>).__vrTestPattern = true;
+  }, [setSelectionRegion, setUseFullscreen, setMode]);
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6">
@@ -86,8 +69,8 @@ export function URLInput() {
         </div>
         <h1 className="text-3xl font-bold tracking-tight">WebXR VR Video Player</h1>
         <p className="text-muted-foreground max-w-lg mx-auto">
-          Convert web-based VR180/360 side-by-side videos into WebXR format for SteamVR viewing.
-          Load a webpage, select the video area, then capture it for VR.
+          Load any webpage with a VR video, draw a rectangle around the video area,
+          then view it in VR with SteamVR.
         </p>
       </div>
 
@@ -106,98 +89,99 @@ export function URLInput() {
               />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <div className="flex gap-3">
-              <Button type="submit" className="flex-1 h-11">
-                <Globe className="w-4 h-4 mr-2" />
-                Load Webpage
-              </Button>
-              <Button type="button" variant="outline" className="flex-1 h-11" onClick={handleDirectVideo}>
-                <Play className="w-4 h-4 mr-2" />
-                Direct Video URL
-              </Button>
-            </div>
+            <Button type="submit" className="w-full h-11">
+              <Globe className="w-4 h-4 mr-2" />
+              Load Webpage &amp; Select Video Area
+            </Button>
           </form>
         </CardContent>
       </Card>
 
-      {/* Screen Capture - Primary Method */}
-      <Card className="border-primary/30 bg-primary/5">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Monitor className="w-4 h-4 text-primary" />
-            Screen Capture Mode (Recommended)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <p className="text-sm text-muted-foreground mb-3">
-            The most reliable way to view VR videos from any website. Open the video in your
-            browser, then capture the screen directly — no proxy issues, works with any site.
-          </p>
-          <Button className="w-full h-10" onClick={handleDirectCapture}>
-            <Monitor className="w-4 h-4 mr-2" />
-            Go to VR Player &amp; Capture Screen
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Quick Options */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Card className="border-primary/30 bg-primary/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Monitor className="w-4 h-4 text-primary" />
+              Screen Capture
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <p className="text-xs text-muted-foreground mb-3">
+              Most reliable — works with any site. Open the video in your
+              browser, then capture the screen directly.
+            </p>
+            <Button size="sm" className="w-full h-9" onClick={handleDirectCapture}>
+              <Monitor className="w-3.5 h-3.5 mr-1.5" />
+              Go to VR Player
+            </Button>
+          </CardContent>
+        </Card>
 
-      {/* Test Pattern */}
-      <Card className="border-dashed">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <TestTube className="w-4 h-4" />
-            Quick Start
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <p className="text-sm text-muted-foreground mb-3">
-            Load a stereo test pattern to preview the VR player and experiment with different
-            projection settings.
-          </p>
-          <Button variant="outline" className="w-full h-10" onClick={handleTestPattern}>
-            <TestTube className="w-4 h-4 mr-2" />
-            Load Test Pattern &amp; Enter VR Mode
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Steps */}
-      <div className="grid grid-cols-3 gap-3 text-center">
-        <div className="p-4 rounded-xl bg-muted/50 border border-border/50">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
-            <Globe className="w-4 h-4 text-primary" />
-          </div>
-          <p className="text-xs font-medium text-muted-foreground mb-0.5">Step 1</p>
-          <p className="text-sm font-medium">Open Page</p>
-          <p className="text-xs text-muted-foreground mt-1">Load webpage or open video</p>
-        </div>
-        <div className="p-4 rounded-xl bg-muted/50 border border-border/50">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
-            <MonitorPlay className="w-4 h-4 text-primary" />
-          </div>
-          <p className="text-xs font-medium text-muted-foreground mb-0.5">Step 2</p>
-          <p className="text-sm font-medium">Select Area</p>
-          <p className="text-xs text-muted-foreground mt-1">Select region or capture screen</p>
-        </div>
-        <div className="p-4 rounded-xl bg-muted/50 border border-border/50">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
-            <Glasses className="w-4 h-4 text-primary" />
-          </div>
-          <p className="text-xs font-medium text-muted-foreground mb-0.5">Step 3</p>
-          <p className="text-sm font-medium">Enter VR</p>
-          <p className="text-xs text-muted-foreground mt-1">Configure &amp; start VR session</p>
-        </div>
+        <Card className="border-dashed">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <TestTube className="w-4 h-4" />
+              Test Pattern
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <p className="text-xs text-muted-foreground mb-3">
+              Load a stereo test pattern to preview the VR player and
+              experiment with projection settings.
+            </p>
+            <Button size="sm" variant="outline" className="w-full h-9" onClick={handleTestPattern}>
+              <TestTube className="w-3.5 h-3.5 mr-1.5" />
+              Load Test Pattern
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Info */}
+      {/* How It Works */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">How It Works</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="p-3 rounded-xl bg-muted/50 border border-border/50">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+                <Globe className="w-4 h-4 text-primary" />
+              </div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Step 1</p>
+              <p className="text-sm font-medium">Open Page</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Load the webpage with the video</p>
+            </div>
+            <div className="p-3 rounded-xl bg-muted/50 border border-border/50">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+                <MousePointer2 className="w-4 h-4 text-primary" />
+              </div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Step 2</p>
+              <p className="text-sm font-medium">Select Area</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Draw a box around the video</p>
+            </div>
+            <div className="p-3 rounded-xl bg-muted/50 border border-border/50">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+                <Glasses className="w-4 h-4 text-primary" />
+              </div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Step 3</p>
+              <p className="text-sm font-medium">Enter VR</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Capture screen &amp; view in VR</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tips */}
       <Card>
         <CardContent className="pt-4 pb-4">
           <div className="flex items-start gap-3">
             <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
             <div className="text-xs text-muted-foreground space-y-1">
-              <p><span className="font-medium text-foreground">Screen Capture:</span> Most reliable method — works with any website including Bilibili, YouTube, etc.</p>
-              <p><span className="font-medium text-foreground">Webpage Proxy:</span> Loads the page through a proxy. Some sites may block this.</p>
-              <p><span className="font-medium text-foreground">Direct URL:</span> For direct video file links (e.g. .mp4). May not work for streaming sites.</p>
-              <p><span className="font-medium text-foreground">VR Mode:</span> Requires Chrome/Edge with WebXR and a VR headset via SteamVR.</p>
+              <p><span className="font-medium text-foreground">Proxy Loading:</span> Loads the page through a proxy. Some sites (Bilibili, YouTube) may block this — use Screen Capture instead.</p>
+              <p><span className="font-medium text-foreground">Screen Capture:</span> Most reliable method — works with any website. Open the video first, then capture the screen.</p>
+              <p><span className="font-medium text-foreground">VR Mode:</span> Requires Chrome/Edge with WebXR support and a VR headset connected via SteamVR.</p>
             </div>
           </div>
         </CardContent>

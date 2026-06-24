@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useVRStore } from '@/store/vr-store';
+import type { SelectionRegion } from '@/store/vr-store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -11,13 +12,14 @@ import {
   ExternalLink,
   Monitor,
   Square,
-  RotateCcw,
-  AlertTriangle,
   Check,
   X,
+  RotateCcw,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 
-interface SelectionRect {
+interface DrawingRect {
   startX: number;
   startY: number;
   endX: number;
@@ -25,14 +27,19 @@ interface SelectionRect {
 }
 
 export function PageViewer() {
-  const { pageUrl, setIsPageLoading, setMode } = useVRStore();
+  const {
+    pageUrl,
+    setIsPageLoading,
+    setMode,
+    setSelectionRegion,
+    setUseFullscreen,
+  } = useVRStore();
 
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [iframeError, setIframeError] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
-  const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
+  const [drawingRect, setDrawingRect] = useState<DrawingRect | null>(null);
   const [confirmedSelection, setConfirmedSelection] = useState<{
     x: number;
     y: number;
@@ -65,26 +72,26 @@ export function PageViewer() {
     setIsPageLoading(false);
   }, [setIsPageLoading]);
 
-  // Start region selection
+  // Start region selection mode
   const handleStartSelection = useCallback(() => {
     setIsSelecting(true);
-    setSelectionRect(null);
+    setDrawingRect(null);
     setConfirmedSelection(null);
   }, []);
 
   const handleCancelSelection = useCallback(() => {
     setIsSelecting(false);
-    setSelectionRect(null);
+    setDrawingRect(null);
     setConfirmedSelection(null);
   }, []);
 
-  // Mouse handlers for region selection
+  // Mouse handlers for drawing the selection rectangle
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (!isSelecting) return;
       const rect = overlayRef.current?.getBoundingClientRect();
       if (!rect) return;
-      setSelectionRect({
+      setDrawingRect({
         startX: e.clientX - rect.left,
         startY: e.clientY - rect.top,
         endX: e.clientX - rect.left,
@@ -97,57 +104,54 @@ export function PageViewer() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (!isSelecting || !selectionRect) return;
+      if (!isSelecting || !drawingRect) return;
       const rect = overlayRef.current?.getBoundingClientRect();
       if (!rect) return;
       const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
       const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-      setSelectionRect((prev) =>
+      setDrawingRect((prev) =>
         prev ? { ...prev, endX: x, endY: y } : null
       );
     },
-    [isSelecting, selectionRect]
+    [isSelecting, drawingRect]
   );
 
   const handleMouseUp = useCallback(() => {
-    if (!isSelecting || !selectionRect) return;
-    // Auto-confirm the selection if it's large enough
-    const w = Math.abs(selectionRect.endX - selectionRect.startX);
-    const h = Math.abs(selectionRect.endY - selectionRect.startY);
+    if (!isSelecting || !drawingRect) return;
+    const w = Math.abs(drawingRect.endX - drawingRect.startX);
+    const h = Math.abs(drawingRect.endY - drawingRect.startY);
     if (w > 20 && h > 20) {
       setConfirmedSelection({
-        x: Math.min(selectionRect.startX, selectionRect.endX),
-        y: Math.min(selectionRect.startY, selectionRect.endY),
+        x: Math.min(drawingRect.startX, drawingRect.endX),
+        y: Math.min(drawingRect.startY, drawingRect.endY),
         width: w,
         height: h,
       });
     }
-  }, [isSelecting, selectionRect]);
+  }, [isSelecting, drawingRect]);
 
-  // Use the whole page (fullscreen) for VR
-  const handleUseFullscreen = useCallback(() => {
-    setConfirmedSelection(null);
-    setIsSelecting(false);
-    // Go to VR mode with screen capture - no region cropping
-    setMode('vr');
-  }, [setMode]);
-
-  // Use the selected region for VR
-  const handleUseSelection = useCallback(() => {
+  // Confirm the selected region and go to VR mode
+  const handleConfirmSelection = useCallback(() => {
     if (!confirmedSelection || !overlayRef.current) return;
     const containerRect = overlayRef.current.getBoundingClientRect();
-    // Store selection as percentages of the container size
-    const region = {
+    // Store selection as fractions (0-1) of the container size
+    const region: SelectionRegion = {
       x: confirmedSelection.x / containerRect.width,
       y: confirmedSelection.y / containerRect.height,
       width: confirmedSelection.width / containerRect.width,
       height: confirmedSelection.height / containerRect.height,
     };
-    // Store the region info and go to VR mode
+    setSelectionRegion(region);
+    setUseFullscreen(false);
     setMode('vr');
-    // The region info will be used during screen capture
-    (window as unknown as Record<string, unknown>).__vrSelectionRegion = region;
-  }, [confirmedSelection, setMode]);
+  }, [confirmedSelection, setSelectionRegion, setUseFullscreen, setMode]);
+
+  // Use the full page (no cropping)
+  const handleUseFullscreen = useCallback(() => {
+    setSelectionRegion(null);
+    setUseFullscreen(true);
+    setMode('vr');
+  }, [setSelectionRegion, setUseFullscreen, setMode]);
 
   // Go back
   const handleGoBack = useCallback(() => {
@@ -161,16 +165,31 @@ export function PageViewer() {
     window.open(pageUrl, '_blank');
   }, [pageUrl]);
 
-  // Compute selection box style
-  const selectionStyle = selectionRect
+  // Reload the iframe
+  const handleReload = useCallback(() => {
+    setIframeLoaded(false);
+    setIframeError(false);
+    setIsPageLoading(true);
+    // Force iframe reload by changing src
+    const iframe = overlayRef.current?.parentElement?.querySelector('iframe');
+    if (iframe) {
+      const src = iframe.src;
+      iframe.src = '';
+      setTimeout(() => { iframe.src = src; }, 100);
+    }
+  }, [setIsPageLoading]);
+
+  // Compute selection box style for the drawing rectangle
+  const drawingStyle = drawingRect
     ? {
-        left: `${Math.min(selectionRect.startX, selectionRect.endX)}px`,
-        top: `${Math.min(selectionRect.startY, selectionRect.endY)}px`,
-        width: `${Math.abs(selectionRect.endX - selectionRect.startX)}px`,
-        height: `${Math.abs(selectionRect.endY - selectionRect.startY)}px`,
+        left: `${Math.min(drawingRect.startX, drawingRect.endX)}px`,
+        top: `${Math.min(drawingRect.startY, drawingRect.endY)}px`,
+        width: `${Math.abs(drawingRect.endX - drawingRect.startX)}px`,
+        height: `${Math.abs(drawingRect.endY - drawingRect.startY)}px`,
       }
     : null;
 
+  // Compute style for the confirmed selection
   const confirmedStyle = confirmedSelection
     ? {
         left: `${confirmedSelection.x}px`,
@@ -195,6 +214,10 @@ export function PageViewer() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={handleReload}>
+            <RotateCcw className="w-4 h-4 mr-1" />
+            Reload
+          </Button>
           <Button variant="ghost" size="sm" onClick={handleOpenOriginal}>
             <ExternalLink className="w-4 h-4 mr-1" />
             Open in New Tab
@@ -210,24 +233,42 @@ export function PageViewer() {
             <div className="text-sm space-y-1">
               <p className="font-medium">Page failed to load through proxy</p>
               <p className="text-muted-foreground">
-                This website may block proxy access. You can open it in a new tab, play
-                the video, then use &quot;Screen Capture&quot; in VR mode to capture it.
+                This website may block proxy access. You can:
               </p>
+              <ol className="list-decimal list-inside text-muted-foreground space-y-0.5">
+                <li>Open it in a new tab, play the video fullscreen</li>
+                <li>Come back and click <strong>&quot;Enter VR (Screen Capture)&quot;</strong> below</li>
+                <li>Select the browser tab with the video when prompted</li>
+              </ol>
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Instructions banner */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="pt-3 pb-3 flex items-center gap-3">
+          <MousePointer2 className="w-5 h-5 text-primary shrink-0" />
+          <div className="text-sm">
+            <p className="font-medium">Select the video area on the page</p>
+            <p className="text-xs text-muted-foreground">
+              Click <strong>&quot;Select Region&quot;</strong> below, then draw a rectangle around the video.
+              Or use <strong>&quot;Full Page&quot;</strong> to capture everything.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Selection controls */}
       <div className="flex items-center gap-2 flex-wrap">
         {isSelecting ? (
           <>
             <span className="text-sm text-muted-foreground">
-              Draw a rectangle on the page to select the video area
+              Click and drag on the page to select the video area
             </span>
             <div className="flex-1" />
             {confirmedSelection && (
-              <Button size="sm" onClick={handleUseSelection}>
+              <Button size="sm" onClick={handleConfirmSelection}>
                 <Check className="w-4 h-4 mr-1" />
                 Use Selected Region
               </Button>
@@ -245,7 +286,7 @@ export function PageViewer() {
             </Button>
             <Button size="sm" variant="outline" onClick={handleUseFullscreen}>
               <Maximize2 className="w-4 h-4 mr-1" />
-              Use Full Page
+              Full Page
             </Button>
             <div className="flex-1" />
             <Button size="sm" onClick={handleUseFullscreen}>
@@ -260,7 +301,6 @@ export function PageViewer() {
       <div className="relative border rounded-lg overflow-hidden bg-black">
         <div className="relative" style={{ height: '68vh' }}>
           <iframe
-            ref={iframeRef}
             src={proxyUrl}
             className="w-full h-full border-0"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
@@ -280,20 +320,20 @@ export function PageViewer() {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
           >
-            {/* Drawing selection */}
-            {selectionStyle && !confirmedSelection && (
+            {/* Drawing selection (while dragging) */}
+            {drawingStyle && !confirmedSelection && (
               <div
                 className="absolute border-2 border-dashed border-primary bg-primary/10 z-10"
-                style={selectionStyle}
+                style={drawingStyle}
               >
                 <div className="absolute -top-6 left-0 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded whitespace-nowrap">
-                  {Math.round(Math.abs(selectionRect!.endX - selectionRect!.startX))} ×{' '}
-                  {Math.round(Math.abs(selectionRect!.endY - selectionRect!.startY))} px
+                  {Math.round(Math.abs(drawingRect!.endX - drawingRect!.startX))} ×{' '}
+                  {Math.round(Math.abs(drawingRect!.endY - drawingRect!.startY))} px
                 </div>
               </div>
             )}
 
-            {/* Confirmed selection */}
+            {/* Confirmed selection with dark overlay */}
             {confirmedStyle && confirmedSelection && (
               <div className="absolute inset-0 z-10">
                 {/* Dark overlay outside selection */}
@@ -311,6 +351,16 @@ export function PageViewer() {
               </div>
             )}
           </div>
+
+          {/* Loading overlay */}
+          {!iframeLoaded && !iframeError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-20">
+              <div className="text-center space-y-2">
+                <RotateCcw className="w-8 h-8 animate-spin text-primary mx-auto" />
+                <p className="text-sm text-muted-foreground">Loading page...</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -318,15 +368,21 @@ export function PageViewer() {
       <Card>
         <CardContent className="pt-3 pb-3">
           <div className="text-xs text-muted-foreground space-y-1">
-            <p className="font-medium text-foreground">How to use:</p>
-            <ol className="list-decimal list-inside space-y-0.5">
-              <li>Interact with the page — find and play the video you want to view in VR</li>
-              <li>Use <strong>Select Region</strong> to draw a box around the video area, or <strong>Use Full Page</strong> for the whole page</li>
-              <li>Click <strong>Enter VR (Screen Capture)</strong> — this will capture your screen and display it in VR</li>
-            </ol>
-            <p className="mt-1">
-              💡 If the page doesn&apos;t load, open it in a new tab, then use Screen Capture in VR mode.
-            </p>
+            <div className="flex items-start gap-2">
+              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-foreground mb-1">How to select the video area:</p>
+                <ol className="list-decimal list-inside space-y-0.5">
+                  <li>Interact with the page — find and play the VR video</li>
+                  <li>Click <strong>Select Region</strong> and draw a rectangle around the video</li>
+                  <li>Click <strong>Use Selected Region</strong> to confirm, then capture the screen in VR mode</li>
+                </ol>
+                <p className="mt-1.5">
+                  If the page doesn&apos;t load (blocked by the site), open it in a new tab instead and use
+                  &quot;Enter VR (Screen Capture)&quot; to capture it directly.
+                </p>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>

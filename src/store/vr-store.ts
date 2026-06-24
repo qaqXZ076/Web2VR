@@ -3,18 +3,12 @@ import type { StereoLayout, ProjectionType } from '@/lib/vr/vr-presets';
 
 export type AppMode = 'input' | 'preview' | 'vr';
 
+/** Region selected by the user on the page (as fractions 0-1 of container size) */
 export interface SelectionRegion {
   x: number;
   y: number;
   width: number;
   height: number;
-}
-
-export interface VideoInfo {
-  src: string;
-  width: number;
-  height: number;
-  isDirectUrl: boolean;
 }
 
 interface VRState {
@@ -28,13 +22,13 @@ interface VRState {
   isPageLoading: boolean;
   setIsPageLoading: (loading: boolean) => void;
 
-  // Video source
-  videoSource: VideoInfo | null;
-  setVideoSource: (source: VideoInfo | null) => void;
-  selectionMode: 'none' | 'region' | 'fullscreen';
-  setSelectionMode: (mode: 'none' | 'region' | 'fullscreen') => void;
+  // Region selected by user on the loaded page (fractional 0-1)
   selectionRegion: SelectionRegion | null;
   setSelectionRegion: (region: SelectionRegion | null) => void;
+
+  // Whether user chose "full page" instead of selecting a region
+  useFullscreen: boolean;
+  setUseFullscreen: (use: boolean) => void;
 
   // VR settings
   layout: StereoLayout;
@@ -61,9 +55,8 @@ const initialState = {
   mode: 'input' as AppMode,
   pageUrl: '',
   isPageLoading: false,
-  videoSource: null,
-  selectionMode: 'none' as const,
-  selectionRegion: null,
+  selectionRegion: null as SelectionRegion | null,
+  useFullscreen: false,
   layout: 'sbs' as StereoLayout,
   projection: 'hemisphere180' as ProjectionType,
   fov: 180,
@@ -77,9 +70,8 @@ export const useVRStore = create<VRState>((set) => ({
   setMode: (mode) => set({ mode }),
   setPageUrl: (url) => set({ pageUrl: url }),
   setIsPageLoading: (loading) => set({ isPageLoading: loading }),
-  setVideoSource: (source) => set({ videoSource: source }),
-  setSelectionMode: (mode) => set({ selectionMode: mode }),
   setSelectionRegion: (region) => set({ selectionRegion: region }),
+  setUseFullscreen: (use) => set({ useFullscreen: use }),
   setLayout: (layout) => set({ layout }),
   setProjection: (projection) => set({ projection }),
   setFov: (fov) => set({ fov }),

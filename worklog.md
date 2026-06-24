@@ -73,3 +73,25 @@ Stage Summary:
 - VR settings panel with 6 presets and manual configuration
 - Test pattern demo mode works correctly
 - WebXR not available warning shows setup instructions
+---
+Task ID: 9
+Agent: Main
+Task: Refactor based on user feedback - remove video detection, make region selection primary, fix proxy 412 errors
+
+Work Log:
+- Fixed proxy route.ts: renamed duplicate `headers` variable to `requestHeaders`/`responseHeaders` to fix compile error
+- Improved proxy 412/403/429/503 error handling: when blocked, returns HTML with helpful banner explaining to use Screen Capture instead
+- Refactored VR store (vr-store.ts): removed VideoInfo, selectionMode, videoSource; added useFullscreen and simplified selectionRegion
+- Rewrote url-input.tsx: removed "Direct Video URL" button, made "Load Webpage & Select Video Area" the primary action, simplified layout
+- Rewrote page-viewer.tsx: removed all video detection logic, made region selection the primary interaction, added instruction banner and loading overlay
+- Rewrote vr-player.tsx: removed VideoInfo/videoSource dependency, uses selectionRegion from store directly, improved test pattern auto-load mechanism, proper crop pipeline from region selection to screen capture
+- All lint checks pass
+- Browser verification: all 10 steps pass (URL input, test pattern, preview mode, proxy loading, region selection)
+
+Stage Summary:
+- Core flow is now: Enter URL → Load Page → Draw rectangle on video area → Enter VR with Screen Capture
+- No more video tag detection - user directly selects the video region on the page
+- Proxy still works for simple sites, but gracefully handles 412/403 from anti-bot sites
+- Screen Capture is the primary method for getting video content into VR
+- Region selection from page viewer is carried over to VR player for cropping
+- Test pattern demo mode still works correctly

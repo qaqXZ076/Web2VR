@@ -60,7 +60,7 @@ function rewriteHtmlUrls(html: string, baseUrl: string): string {
   return html;
 }
 
-// Minimal injected script - no video detection, just page load notification
+// Minimal injected script - just page load notification
 const INJECTED_SCRIPT = `
 <script>
 (function() {
@@ -90,8 +90,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build headers that mimic a real browser request to avoid 412/403 errors
-    const headers: Record<string, string> = {
+    // Build request headers that mimic a real browser
+    const requestHeaders: Record<string, string> = {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       'Accept':
@@ -112,14 +112,17 @@ export async function GET(request: NextRequest) {
     };
 
     const response = await fetch(targetUrl.href, {
-      headers,
+      headers: requestHeaders,
       redirect: 'follow',
     });
 
-    // If the response is an error, still try to pass it through
+    // If the response is an error, try to show helpful info
     if (!response.ok && response.status !== 206) {
       const contentType = response.headers.get('content-type') || '';
-      // If it's an HTML error page, still try to show it
+
+      // Common anti-bot status codes
+      const isBlocked = [403, 412, 429, 503].includes(response.status);
+
       if (contentType.includes('text/html')) {
         const body = await response.arrayBuffer();
         let html = new TextDecoder('utf-8', { fatal: false }).decode(body);
@@ -130,8 +133,23 @@ export async function GET(request: NextRequest) {
           html = baseTag + html;
         }
         html = rewriteHtmlUrls(html, targetUrl.href);
+
+        // Inject a helpful banner for blocked sites
+        if (isBlocked) {
+          const banner = `
+<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#fef2f2;border-bottom:2px solid #ef4444;padding:12px 20px;font-family:system-ui,sans-serif;font-size:14px;color:#991b1b;">
+  <strong>⚠️ This website blocks proxy access (HTTP ${response.status})</strong><br/>
+  <span style="font-size:12px;color:#b91c1c;">Please open the URL in a new tab, play the video, then use <strong>Screen Capture</strong> mode in the VR player to capture it.</span>
+</div>`;
+          if (html.includes('<body>')) {
+            html = html.replace('<body>', `<body>${banner}`);
+          } else {
+            html = banner + html;
+          }
+        }
+
         return new NextResponse(html, {
-          status: response.status,
+          status: 200, // Return 200 so iframe renders the error page with banner
           headers: {
             'Content-Type': 'text/html; charset=utf-8',
             'Access-Control-Allow-Origin': '*',
@@ -140,11 +158,13 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // Non-HTML error - return error info
+      // Non-HTML error
       return NextResponse.json(
         {
           error: `Target returned ${response.status} ${response.statusText}`,
-          hint: 'The website may block automated requests. Try using "Screen Capture" mode instead.',
+          hint: isBlocked
+            ? 'This website blocks proxy access. Open the URL in a new browser tab, then use "Screen Capture" in VR mode to capture the video.'
+            : 'The website may be temporarily unavailable. Try again or use "Screen Capture" mode.',
         },
         { status: response.status }
       );
@@ -188,27 +208,27 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Pass through non-HTML content
-    const headers = new Headers();
-    headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    headers.set('Access-Control-Allow-Headers', '*');
+    // Pass through non-HTML content (video, images, CSS, JS, etc.)
+    const responseHeaders = new Headers();
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    responseHeaders.set('Access-Control-Allow-Headers', '*');
 
     if (contentType) {
-      headers.set('Content-Type', contentType);
+      responseHeaders.set('Content-Type', contentType);
     }
 
     // Range request support for video/audio
     const range = request.headers.get('range');
     if (range && response.status === 206) {
-      headers.set('Content-Range', response.headers.get('content-range') || '');
-      headers.set('Accept-Ranges', 'bytes');
+      responseHeaders.set('Content-Range', response.headers.get('content-range') || '');
+      responseHeaders.set('Accept-Ranges', 'bytes');
       const cl = response.headers.get('content-length');
-      if (cl) headers.set('Content-Length', cl);
-      return new NextResponse(body, { status: 206, headers });
+      if (cl) responseHeaders.set('Content-Length', cl);
+      return new NextResponse(body, { status: 206, headers: responseHeaders });
     }
 
-    headers.set('Content-Length', body.byteLength.toString());
+    responseHeaders.set('Content-Length', body.byteLength.toString());
 
     if (
       contentType.includes('image') ||
@@ -216,17 +236,17 @@ export async function GET(request: NextRequest) {
       contentType.includes('javascript') ||
       contentType.includes('css')
     ) {
-      headers.set('Cache-Control', 'public, max-age=3600');
+      responseHeaders.set('Cache-Control', 'public, max-age=3600');
     }
 
-    return new NextResponse(body, { status: 200, headers });
+    return new NextResponse(body, { status: 200, headers: responseHeaders });
   } catch (error) {
     console.error('Proxy error:', error);
     return NextResponse.json(
       {
         error: 'Failed to fetch the requested URL',
         details: error instanceof Error ? error.message : 'Unknown error',
-        hint: 'The website may not be accessible through the proxy. Try using "Screen Capture" mode instead - open the URL in a new tab, then capture your screen.',
+        hint: 'The website may not be accessible through the proxy. Open the URL in a new browser tab, then use "Screen Capture" mode to capture the video.',
       },
       { status: 502 }
     );
