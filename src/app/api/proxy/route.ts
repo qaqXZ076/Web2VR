@@ -4,70 +4,45 @@ const PROXY_BASE = '/api/proxy';
 
 function getProxyUrl(originalUrl: string, baseUrl: string): string {
   try {
-    // If it's already a proxy URL, don't re-proxy
-    if (originalUrl.includes(PROXY_BASE)) return originalUrl;
+    if (originalUrl.includes('/api/proxy')) return originalUrl;
+    if (originalUrl.startsWith('data:') || originalUrl.startsWith('blob:') || originalUrl.startsWith('javascript:')) return originalUrl;
 
-    // Handle absolute URLs
     if (originalUrl.startsWith('http://') || originalUrl.startsWith('https://')) {
       return `${PROXY_BASE}?url=${encodeURIComponent(originalUrl)}`;
     }
-
-    // Handle protocol-relative URLs
     if (originalUrl.startsWith('//')) {
       return `${PROXY_BASE}?url=${encodeURIComponent('https:' + originalUrl)}`;
     }
-
-    // Handle absolute paths
     if (originalUrl.startsWith('/')) {
       const base = new URL(baseUrl);
-      const fullUrl = `${base.origin}${originalUrl}`;
-      return `${PROXY_BASE}?url=${encodeURIComponent(fullUrl)}`;
+      return `${PROXY_BASE}?url=${encodeURIComponent(`${base.origin}${originalUrl}`)}`;
     }
-
-    // Handle relative paths
     const base = new URL(baseUrl);
-    const fullUrl = new URL(originalUrl, base).href;
-    return `${PROXY_BASE}?url=${encodeURIComponent(fullUrl)}`;
+    return `${PROXY_BASE}?url=${encodeURIComponent(new URL(originalUrl, base).href)}`;
   } catch {
     return originalUrl;
   }
 }
 
 function rewriteHtmlUrls(html: string, baseUrl: string): string {
-  // Rewrite src attributes
   html = html.replace(
     /(src\s*=\s*["'])([^"']+)(["'])/gi,
     (_, prefix, url, suffix) => {
-      if (
-        url.startsWith('data:') ||
-        url.startsWith('blob:') ||
-        url.startsWith('javascript:') ||
-        url.startsWith('#')
-      ) {
+      if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('javascript:') || url.startsWith('#')) {
         return prefix + url + suffix;
       }
       return prefix + getProxyUrl(url, baseUrl) + suffix;
     }
   );
-
-  // Rewrite href attributes (but not for anchors with #)
   html = html.replace(
     /(href\s*=\s*["'])([^"']+)(["'])/gi,
     (_, prefix, url, suffix) => {
-      if (
-        url.startsWith('data:') ||
-        url.startsWith('blob:') ||
-        url.startsWith('javascript:') ||
-        url.startsWith('#') ||
-        url.startsWith('mailto:')
-      ) {
+      if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('javascript:') || url.startsWith('#') || url.startsWith('mailto:')) {
         return prefix + url + suffix;
       }
       return prefix + getProxyUrl(url, baseUrl) + suffix;
     }
   );
-
-  // Rewrite action attributes
   html = html.replace(
     /(action\s*=\s*["'])([^"']+)(["'])/gi,
     (_, prefix, url, suffix) => {
@@ -75,109 +50,21 @@ function rewriteHtmlUrls(html: string, baseUrl: string): string {
       return prefix + getProxyUrl(url, baseUrl) + suffix;
     }
   );
-
-  // Rewrite url() in style attributes and inline styles
   html = html.replace(
     /url\(["']?([^"')]+)["']?\)/gi,
     (_, url) => {
-      if (url.startsWith('data:') || url.startsWith('blob:')) {
-        return `url('${url}')`;
-      }
+      if (url.startsWith('data:') || url.startsWith('blob:')) return `url('${url}')`;
       return `url('${getProxyUrl(url, baseUrl)}')`;
     }
   );
-
   return html;
 }
 
-// Inject a script that helps detect video elements and communicate with parent
+// Minimal injected script - no video detection, just page load notification
 const INJECTED_SCRIPT = `
 <script>
 (function() {
   'use strict';
-
-  // Prevent the page from navigating away
-  window.addEventListener('beforeunload', function(e) { e.preventDefault(); });
-
-  // Detect video elements and notify parent
-  function detectVideos() {
-    var videos = document.querySelectorAll('video');
-    var videoInfo = [];
-    videos.forEach(function(v, i) {
-      videoInfo.push({
-        index: i,
-        src: v.currentSrc || v.src || '',
-        width: v.videoWidth || v.clientWidth,
-        height: v.videoHeight || v.clientHeight,
-        isPlaying: !v.paused,
-        hasFullscreen: !!(v.requestFullscreen || v.webkitRequestFullscreen || v.msRequestFullscreen)
-      });
-    });
-    window.parent.postMessage({ type: 'proxy-video-detect', videos: videoInfo }, '*');
-  }
-
-  // Run detection on load and when DOM changes
-  if (document.readyState === 'complete') {
-    detectVideos();
-  } else {
-    window.addEventListener('load', detectVideos);
-  }
-
-  // Observe DOM mutations for dynamically added videos
-  var observer = new MutationObserver(function() {
-    setTimeout(detectVideos, 500);
-  });
-  observer.observe(document.body || document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-
-  // Listen for messages from parent
-  window.addEventListener('message', function(e) {
-    if (e.data && e.data.type === 'proxy-request-videos') {
-      detectVideos();
-    }
-    if (e.data && e.data.type === 'proxy-fullscreen-video') {
-      var idx = e.data.index || 0;
-      var videos = document.querySelectorAll('video');
-      if (videos[idx]) {
-        var v = videos[idx];
-        if (v.requestFullscreen) v.requestFullscreen();
-        else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
-        else if (v.msRequestFullscreen) v.msRequestFullscreen();
-      }
-    }
-    if (e.data && e.data.type === 'proxy-play-video') {
-      var idx = e.data.index || 0;
-      var videos = document.querySelectorAll('video');
-      if (videos[idx]) {
-        videos[idx].play().catch(function(){});
-      }
-    }
-    if (e.data && e.data.type === 'proxy-pause-video') {
-      var idx = e.data.index || 0;
-      var videos = document.querySelectorAll('video');
-      if (videos[idx]) {
-        videos[idx].pause();
-      }
-    }
-  });
-
-  // Click handler to detect video clicks
-  document.addEventListener('click', function(e) {
-    var video = e.target.closest('video');
-    if (video) {
-      var videos = document.querySelectorAll('video');
-      var idx = Array.from(videos).indexOf(video);
-      window.parent.postMessage({
-        type: 'proxy-video-clicked',
-        index: idx,
-        rect: video.getBoundingClientRect()
-      }, '*');
-    }
-  }, true);
-
-  // Report page load
   window.parent.postMessage({ type: 'proxy-page-loaded', url: window.location.href }, '*');
 })();
 </script>
@@ -194,10 +81,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Validate URL
     const targetUrl = new URL(url);
 
-    // Block some dangerous schemes
     if (!['http:', 'https:'].includes(targetUrl.protocol)) {
       return NextResponse.json(
         { error: 'Only HTTP and HTTPS URLs are supported' },
@@ -205,26 +90,73 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch the content
+    // Build headers that mimic a real browser request to avoid 412/403 errors
+    const headers: Record<string, string> = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept':
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+      'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+      'Referer': targetUrl.origin + '/',
+    };
+
     const response = await fetch(targetUrl.href, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
+      headers,
       redirect: 'follow',
     });
+
+    // If the response is an error, still try to pass it through
+    if (!response.ok && response.status !== 206) {
+      const contentType = response.headers.get('content-type') || '';
+      // If it's an HTML error page, still try to show it
+      if (contentType.includes('text/html')) {
+        const body = await response.arrayBuffer();
+        let html = new TextDecoder('utf-8', { fatal: false }).decode(body);
+        const baseTag = `<base href="${targetUrl.href}">`;
+        if (html.includes('<head>')) {
+          html = html.replace('<head>', `<head>${baseTag}`);
+        } else {
+          html = baseTag + html;
+        }
+        html = rewriteHtmlUrls(html, targetUrl.href);
+        return new NextResponse(html, {
+          status: response.status,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'X-Frame-Options': 'ALLOWALL',
+          },
+        });
+      }
+
+      // Non-HTML error - return error info
+      return NextResponse.json(
+        {
+          error: `Target returned ${response.status} ${response.statusText}`,
+          hint: 'The website may block automated requests. Try using "Screen Capture" mode instead.',
+        },
+        { status: response.status }
+      );
+    }
 
     const contentType = response.headers.get('content-type') || '';
     const body = await response.arrayBuffer();
 
-    // Handle different content types
+    // Handle HTML content
     if (contentType.includes('text/html')) {
       let html = new TextDecoder('utf-8', { fatal: false }).decode(body);
 
-      // Inject base tag to handle relative URLs
       const baseTag = `<base href="${targetUrl.href}">`;
       if (html.includes('<head>')) {
         html = html.replace('<head>', `<head>${baseTag}`);
@@ -234,10 +166,8 @@ export async function GET(request: NextRequest) {
         html = baseTag + html;
       }
 
-      // Rewrite URLs in the HTML
       html = rewriteHtmlUrls(html, targetUrl.href);
 
-      // Inject our helper script before </body> or at the end
       if (html.includes('</body>')) {
         html = html.replace('</body>', `${INJECTED_SCRIPT}</body>`);
       } else {
@@ -253,36 +183,33 @@ export async function GET(request: NextRequest) {
           'Access-Control-Allow-Headers': '*',
           'X-Frame-Options': 'ALLOWALL',
           'Content-Security-Policy':
-            "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src *; media-src * data: blob:;",
+            "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src *; media-src * data: blob:; img-src * data: blob:; font-src * data: blob:; connect-src * data: blob:; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';",
         },
       });
     }
 
-    // For non-HTML content (CSS, JS, images, videos, etc.), pass through directly
+    // Pass through non-HTML content
     const headers = new Headers();
     headers.set('Access-Control-Allow-Origin', '*');
     headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
     headers.set('Access-Control-Allow-Headers', '*');
 
-    // Forward content type
     if (contentType) {
       headers.set('Content-Type', contentType);
     }
 
-    // For video/audio, support range requests
+    // Range request support for video/audio
     const range = request.headers.get('range');
     if (range && response.status === 206) {
       headers.set('Content-Range', response.headers.get('content-range') || '');
       headers.set('Accept-Ranges', 'bytes');
-      const contentLength = response.headers.get('content-length');
-      if (contentLength) headers.set('Content-Length', contentLength);
+      const cl = response.headers.get('content-length');
+      if (cl) headers.set('Content-Length', cl);
       return new NextResponse(body, { status: 206, headers });
     }
 
-    const contentLength = body.byteLength;
-    headers.set('Content-Length', contentLength.toString());
+    headers.set('Content-Length', body.byteLength.toString());
 
-    // Cache static assets
     if (
       contentType.includes('image') ||
       contentType.includes('font') ||
@@ -299,13 +226,13 @@ export async function GET(request: NextRequest) {
       {
         error: 'Failed to fetch the requested URL',
         details: error instanceof Error ? error.message : 'Unknown error',
+        hint: 'The website may not be accessible through the proxy. Try using "Screen Capture" mode instead - open the URL in a new tab, then capture your screen.',
       },
       { status: 502 }
     );
   }
 }
 
-// Handle CORS preflight
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
