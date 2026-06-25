@@ -123,3 +123,34 @@ Stage Summary:
 - After capture, user can draw a region on the preview to crop to the video area
 - Simpler, more reliable flow that works with any website (Bilibili, YouTube, etc.)
 - Two-step flow: Landing → VR Player (with capture + crop + settings)
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Apply user's micro-tuning suggestion + fix code that was reverted to simpler version
+
+Work Log:
+- Discovered the vr-player.tsx had been reverted to a simpler version that:
+  - Used requestAnimationFrame instead of renderer.setAnimationLoop() (wrong for WebXR)
+  - Had no handleExitVR function
+  - Had no debounce lock
+  - Had no renderer.xr.getSession() usage
+  - Had no renderer.setAnimationLoop(null) on session end
+- Re-applied all VR session lifecycle fixes:
+  1. Replaced requestAnimationFrame with renderer.setAnimationLoop() (required for WebXR)
+  2. Created onSessionEnded() as the SINGLE cleanup handler on session 'end' event
+  3. Added handleExitVR using renderer.xr.getSession() as primary source
+  4. Added vrEnteringRef debounce lock
+  5. Added renderer.setAnimationLoop(null) in onSessionEnded to release XR pipeline
+  6. Added startRenderLoop() centralized function
+- Applied user's micro-tuning suggestion: added explicit renderer.xr.enabled = true reset
+  and isPresenting safety check in startRenderLoop() to guard against async race conditions
+- Added "Exit VR" button to UI (LogOut icon, destructive variant)
+- Removed unused animFrameRef
+- Updated Escape key handler to use handleExitVR instead of direct session.end()
+- All lint checks pass, Agent Browser verification confirms no errors
+
+Stage Summary:
+- VR session lifecycle now fully follows standard WebXR pattern with all user feedback incorporated
+- startRenderLoop() has explicit renderer.xr.enabled = true reset and isPresenting safety check
+- Exit VR button added to UI
