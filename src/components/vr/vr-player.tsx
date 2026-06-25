@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { useTranslation, useRenderTranslation } from '@/lib/i18n/useTranslation';
 import { useVRStore } from '@/store/vr-store';
 import type { CropRegion } from '@/store/vr-store';
 import type { StereoLayout, ProjectionType } from '@/lib/vr/vr-presets';
@@ -58,6 +59,10 @@ export function VRPlayer() {
   const meshesRef = useRef<THREE.Mesh[]>([]);
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cropCleanupRef = useRef<(() => void) | null>(null);
+
+  // ====== i18n ======
+  const { t } = useTranslation();
+  const { rt } = useRenderTranslation();
 
   // ====== Store ======
   const {
@@ -460,9 +465,9 @@ export function VRPlayer() {
         }
       };
     } catch {
-      setVideoError('Screen capture was cancelled or failed. Please try again.');
+      setVideoError(t('error.screenCaptureCancelled'));
     }
-  }, [buildScene, startCropCanvas, cropEnabled, storeCropRegion, setStoreCropRegion, setStoreCropEnabled]);
+  }, [buildScene, startCropCanvas, cropEnabled, storeCropRegion, setStoreCropRegion, setStoreCropEnabled, t]);
 
   // ====== Auto screen capture from landing page ======
   useEffect(() => {
@@ -606,12 +611,12 @@ export function VRPlayer() {
     } catch (err) {
       console.error('Failed to start VR session:', err);
       setVideoError(
-        `Failed to enter VR: ${err instanceof Error ? err.message : 'Unknown error'}. Make sure your VR headset is connected and SteamVR is running.`
+        t('error.enterVRFailed', { error: err instanceof Error ? err.message : 'Unknown error' })
       );
     } finally {
       vrEnteringRef.current = false;
     }
-  }, [setIsInVR, buildScene, cropEnabled, storeCropRegion, captureMode, startRenderLoop, onSessionEnded]);
+  }, [setIsInVR, buildScene, cropEnabled, storeCropRegion, captureMode, startRenderLoop, onSessionEnded, t]);
 
   // ====== Exit VR ======
   const handleExitVR = useCallback(async () => {
@@ -866,8 +871,8 @@ export function VRPlayer() {
   const handlePointerUp = useCallback(() => { isDragging.current = false; }, []);
 
   const captureModeLabel =
-    captureMode === 'screen' ? 'Screen Capture' :
-    captureMode === 'test' ? 'Test Pattern' : 'No Source';
+    captureMode === 'screen' ? t('player.source.screenCapture') :
+    captureMode === 'test' ? t('player.source.testPattern') : t('player.source.noSource');
 
   // Compute drawing rect styles
   const drawingStyle = drawingRect
@@ -895,27 +900,27 @@ export function VRPlayer() {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={handleGoBack}>
-              <ArrowLeft className="w-4 h-4 mr-1" /> Back
+              <ArrowLeft className="w-4 h-4 mr-1" /> {t('player.back')}
             </Button>
             <div className="h-4 w-px bg-border" />
             <Badge variant="outline" className="text-xs">{captureModeLabel}</Badge>
             {cropEnabled && storeCropRegion && (
               <Badge variant="outline" className="text-xs">
                 <Crop className="w-3 h-3 mr-1" />
-                Crop: {Math.round(storeCropRegion.width * 100)}%×{Math.round(storeCropRegion.height * 100)}%
+                {t('player.crop')}: {Math.round(storeCropRegion.width * 100)}%×{Math.round(storeCropRegion.height * 100)}%
               </Badge>
             )}
             {isInVR && (
               <Badge className="bg-green-600 text-white text-xs">
-                <Glasses className="w-3 h-3 mr-1" /> VR Active
+                <Glasses className="w-3 h-3 mr-1" /> {t('player.vrActive')}
               </Badge>
             )}
           </div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <Info className="w-3 h-3" />
             <span>
-              {layout === 'sbs' ? 'SBS' : layout === 'tb' ? 'TB' : 'Mono'} ·{' '}
-              {projection === 'sphere360' ? '360°' : projection === 'hemisphere180' ? '180°' : 'Cyl'} · {fov}°
+              {layout === 'sbs' ? t('player.layout.sbs') : layout === 'tb' ? t('player.layout.tb') : t('player.layout.mono')} ·{' '}
+              {projection === 'sphere360' ? t('player.projection.sphere360') : projection === 'hemisphere180' ? t('player.projection.hemisphere180') : t('player.projection.cylinder')} · {fov}°
             </span>
           </div>
         </div>
@@ -929,10 +934,10 @@ export function VRPlayer() {
                 <p className="text-sm text-destructive">{videoError}</p>
                 <div className="flex gap-2 flex-wrap">
                   <Button size="sm" variant="outline" onClick={handleScreenCapture}>
-                    <Monitor className="w-3 h-3 mr-1" /> Screen Capture
+                    <Monitor className="w-3 h-3 mr-1" /> {t('player.screenCapture')}
                   </Button>
                   <Button size="sm" variant="outline" onClick={handleTestPattern}>
-                    <TestTube className="w-3 h-3 mr-1" /> Test Pattern
+                    <TestTube className="w-3 h-3 mr-1" /> {t('player.testPattern')}
                   </Button>
                 </div>
               </div>
@@ -945,30 +950,30 @@ export function VRPlayer() {
           <Card>
             <CardContent className="pt-4 pb-3 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">Captured Screen Preview</p>
+                <p className="text-sm font-medium">{t('player.capturedPreview')}</p>
                 <div className="flex items-center gap-2">
                   {isSelectingRegion ? (
                     <>
                       <span className="text-xs text-muted-foreground">
-                        Draw a rectangle around the video area
+                        {t('player.drawRectangle')}
                       </span>
                       {confirmedDrawRect && (
                         <Button size="sm" onClick={handleConfirmRegion}>
-                          <Check className="w-3.5 h-3.5 mr-1" /> Apply Crop
+                          <Check className="w-3.5 h-3.5 mr-1" /> {t('player.applyCrop')}
                         </Button>
                       )}
                       <Button size="sm" variant="ghost" onClick={handleCancelRegionSelect}>
-                        <X className="w-3.5 h-3.5 mr-1" /> Cancel
+                        <X className="w-3.5 h-3.5 mr-1" /> {t('player.cancel')}
                       </Button>
                     </>
                   ) : (
                     <>
                       <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop}>
                         <MousePointer2 className="w-3.5 h-3.5 mr-1" />
-                        {cropEnabled ? 'Reset Region' : 'Select Region'}
+                        {cropEnabled ? t('player.resetRegion') : t('player.selectRegion')}
                       </Button>
                       <Button size="sm" variant="outline" onClick={handleScreenCapture}>
-                        <Monitor className="w-3.5 h-3.5 mr-1" /> Re-capture
+                        <Monitor className="w-3.5 h-3.5 mr-1" /> {t('player.recapture')}
                       </Button>
                     </>
                   )}
@@ -1046,7 +1051,7 @@ export function VRPlayer() {
 
               {!isSelectingRegion && !cropEnabled && (
                 <p className="text-xs text-muted-foreground">
-                  💡 Use <strong>Select Region</strong> to crop the video area if the VR video doesn&apos;t fill the entire captured screen.
+                  {rt('player.cropHint')}
                 </p>
               )}
             </CardContent>
@@ -1072,7 +1077,7 @@ export function VRPlayer() {
             <div className="absolute inset-0 flex items-center justify-center bg-black/80">
               <div className="text-center space-y-2">
                 <RotateCcw className="w-8 h-8 animate-spin text-primary mx-auto" />
-                <p className="text-sm text-muted-foreground">Initializing VR player...</p>
+                <p className="text-sm text-muted-foreground">{t('player.initializing')}</p>
               </div>
             </div>
           )}
@@ -1081,17 +1086,16 @@ export function VRPlayer() {
             <div className="absolute inset-0 flex items-center justify-center bg-black/80">
               <div className="text-center space-y-3">
                 <Monitor className="w-12 h-12 text-muted-foreground mx-auto" />
-                <p className="text-sm text-muted-foreground">No video source</p>
+                <p className="text-sm text-muted-foreground">{t('player.noVideoSource')}</p>
                 <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                  Click &quot;Capture&quot; below to capture a browser tab playing your VR video,
-                  or load the test pattern to preview the VR player.
+                  {t('player.noVideoSourceDesc')}
                 </p>
                 <div className="flex gap-2 justify-center">
                   <Button size="sm" onClick={handleScreenCapture}>
-                    <Monitor className="w-4 h-4 mr-1" /> Screen Capture
+                    <Monitor className="w-4 h-4 mr-1" /> {t('player.screenCapture')}
                   </Button>
                   <Button size="sm" variant="outline" onClick={handleTestPattern}>
-                    <TestTube className="w-4 h-4 mr-1" /> Test Pattern
+                    <TestTube className="w-4 h-4 mr-1" /> {t('player.testPattern')}
                   </Button>
                 </div>
               </div>
@@ -1101,7 +1105,7 @@ export function VRPlayer() {
           {hasVideo && showPreview && !isInitializing && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
               <p className="text-xs text-white/60 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-sm">
-                Drag to look around · Space: Play/Pause · F: Fullscreen · M: Mute
+                {t('player.dragHint')}
               </p>
             </div>
           )}
@@ -1116,7 +1120,7 @@ export function VRPlayer() {
                   {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Play / Pause</TooltipContent>
+              <TooltipContent>{t('player.playPause')}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1124,17 +1128,17 @@ export function VRPlayer() {
                   {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Mute / Unmute</TooltipContent>
+              <TooltipContent>{t('player.muteUnmute')}</TooltipContent>
             </Tooltip>
             {captureMode === 'screen' && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop} aria-label="Toggle crop">
+                  <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop} aria-label={t('player.toggleCrop')}>
                     <Crop className="w-4 h-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {cropEnabled ? 'Disable crop (full frame)' : 'Select region to crop'}
+                  {cropEnabled ? t('player.disableCrop') : t('player.selectRegionCrop')}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -1143,46 +1147,46 @@ export function VRPlayer() {
           <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm" variant="outline" onClick={handleTestPattern} aria-label="Load test pattern">
-                  <TestTube className="w-4 h-4" /><span className="hidden sm:inline ml-1">Demo</span>
+                <Button size="sm" variant="outline" onClick={handleTestPattern} aria-label={t('player.loadTestPattern')}>
+                  <TestTube className="w-4 h-4" /><span className="hidden sm:inline ml-1">{t('player.demo')}</span>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Load test pattern</TooltipContent>
+              <TooltipContent>{t('player.loadTestPattern')}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm" onClick={handleScreenCapture} aria-label="Screen capture">
-                  <Monitor className="w-4 h-4 mr-1" /> Capture
+                <Button size="sm" onClick={handleScreenCapture} aria-label={t('player.capture')}>
+                  <Monitor className="w-4 h-4 mr-1" /> {t('player.capture')}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Capture screen/window for VR</TooltipContent>
+              <TooltipContent>{t('player.captureTooltip')}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm" variant="outline" onClick={handleEnterFullscreen} aria-label="Enter fullscreen">
-                  <Maximize className="w-4 h-4" /><span className="hidden sm:inline ml-1">Fullscreen</span>
+                <Button size="sm" variant="outline" onClick={handleEnterFullscreen} aria-label={t('player.enterFullscreen')}>
+                  <Maximize className="w-4 h-4" /><span className="hidden sm:inline ml-1">{t('player.fullscreen')}</span>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Enter fullscreen mode</TooltipContent>
+              <TooltipContent>{t('player.enterFullscreen')}</TooltipContent>
             </Tooltip>
             {isVRSupported && !isInVR && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button size="sm" onClick={handleEnterVR}>
-                    <Glasses className="w-4 h-4 mr-1" /> Enter VR
+                    <Glasses className="w-4 h-4 mr-1" /> {t('player.enterVR')}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Enter immersive VR mode</TooltipContent>
+                <TooltipContent>{t('player.enterVRTooltip')}</TooltipContent>
               </Tooltip>
             )}
             {isInVR && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button size="sm" variant="destructive" onClick={handleExitVR}>
-                    <LogOut className="w-4 h-4 mr-1" /> Exit VR
+                    <LogOut className="w-4 h-4 mr-1" /> {t('player.exitVR')}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Exit VR and return to 2D view</TooltipContent>
+                <TooltipContent>{t('player.exitVRTooltip')}</TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -1195,19 +1199,17 @@ export function VRPlayer() {
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
                 <div className="text-sm space-y-1">
-                  <p className="font-medium">WebXR Not Available</p>
+                  <p className="font-medium">{t('player.vrNotAvailable')}</p>
                   <p className="text-muted-foreground">
-                    WebXR is not supported in this browser. To use VR with SteamVR, open this
-                    page in Chrome/Edge with a VR headset connected. You can still use fullscreen
-                    and screen capture.
+                    {t('player.vrNotAvailableDesc')}
                   </p>
                   <div className="mt-2 p-2 rounded bg-muted text-xs space-y-1">
-                    <p className="font-medium">Setup Guide:</p>
+                    <p className="font-medium">{t('player.setupGuide')}</p>
                     <ol className="list-decimal list-inside space-y-0.5 text-muted-foreground">
-                      <li>Install SteamVR on your PC</li>
-                      <li>Connect your VR headset</li>
-                      <li>Open this page in Chrome/Edge</li>
-                      <li>Click &quot;Capture&quot; then &quot;Enter VR&quot;</li>
+                      <li>{t('player.setupGuide.step1')}</li>
+                      <li>{t('player.setupGuide.step2')}</li>
+                      <li>{t('player.setupGuide.step3')}</li>
+                      <li>{t('player.setupGuide.step4')}</li>
                     </ol>
                   </div>
                 </div>

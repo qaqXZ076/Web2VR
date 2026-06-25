@@ -9,6 +9,7 @@ import {
   type StereoLayout,
   type ProjectionType,
 } from '@/lib/vr/vr-presets';
+import { useTranslation } from '@/lib/i18n/useTranslation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
@@ -33,6 +34,8 @@ export function VRSettings() {
     applyPreset,
   } = useVRStore();
 
+  const { t } = useTranslation();
+
   return (
     <div className="space-y-4">
       {/* Presets */}
@@ -40,7 +43,7 @@ export function VRSettings() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <Tv className="w-4 h-4" />
-            Quick Presets
+            {t('settings.presets')}
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
@@ -60,11 +63,11 @@ export function VRSettings() {
                 <div className="flex items-center gap-2 w-full">
                   <span className="text-lg">{preset.icon}</span>
                   <span className="text-xs font-medium leading-tight">
-                    {preset.name}
+                    {t(`preset.${preset.id}.name`)}
                   </span>
                 </div>
                 <span className="text-[10px] text-muted-foreground leading-tight">
-                  {preset.description}
+                  {t(`preset.${preset.id}.desc`)}
                 </span>
               </button>
             ))}
@@ -77,7 +80,7 @@ export function VRSettings() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <Settings2 className="w-4 h-4" />
-            Manual Settings
+            {t('settings.manualSettings')}
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-5">
@@ -85,7 +88,7 @@ export function VRSettings() {
           <div className="space-y-2">
             <Label className="text-xs flex items-center gap-1.5">
               <Eye className="w-3.5 h-3.5" />
-              Stereo Layout
+              {t('settings.stereoLayout')}
             </Label>
             <Select
               value={layout}
@@ -95,9 +98,9 @@ export function VRSettings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(LAYOUT_LABELS).map(([key, label]) => (
+                {Object.keys(LAYOUT_LABELS).map((key) => (
                   <SelectItem key={key} value={key}>
-                    {label}
+                    {t(`layout.${key}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -108,7 +111,7 @@ export function VRSettings() {
           <div className="space-y-2">
             <Label className="text-xs flex items-center gap-1.5">
               <Move3D className="w-3.5 h-3.5" />
-              Projection Type
+              {t('settings.projectionType')}
             </Label>
             <Select
               value={projection}
@@ -118,9 +121,9 @@ export function VRSettings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(PROJECTION_LABELS).map(([key, label]) => (
+                {Object.keys(PROJECTION_LABELS).map((key) => (
                   <SelectItem key={key} value={key}>
-                    {label}
+                    {t(`projection.${key}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -131,7 +134,7 @@ export function VRSettings() {
           <div className="space-y-2">
             <Label className="text-xs flex items-center gap-1.5">
               <Gauge className="w-3.5 h-3.5" />
-              Field of View
+              {t('settings.fov')}
               <Badge variant="outline" className="ml-auto text-[10px]">
                 {fov}°
               </Badge>
@@ -168,20 +171,20 @@ export function VRSettings() {
         <CardContent className="pt-4 pb-4">
           <div className="text-xs text-muted-foreground space-y-1">
             <p className="font-medium text-foreground">
-              Current Configuration:
+              {t('settings.currentConfig')}
             </p>
             <p>
-              Layout:{' '}
-              <span className="text-foreground">{LAYOUT_LABELS[layout]}</span>
+              {t('settings.layoutLabel')}{' '}
+              <span className="text-foreground">{t(`layout.${layout}`)}</span>
             </p>
             <p>
-              Projection:{' '}
+              {t('settings.projectionLabel')}{' '}
               <span className="text-foreground">
-                {PROJECTION_LABELS[projection]}
+                {t(`projection.${projection}`)}
               </span>
             </p>
             <p>
-              FOV: <span className="text-foreground">{fov}°</span>
+              {t('settings.fovLabel')} <span className="text-foreground">{fov}°</span>
             </p>
           </div>
         </CardContent>

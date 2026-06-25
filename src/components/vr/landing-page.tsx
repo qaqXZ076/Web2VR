@@ -5,9 +5,12 @@ import { useVRStore } from '@/store/vr-store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Glasses, Monitor, TestTube, ArrowRight, Info } from 'lucide-react';
+import { useTranslation, useRenderTranslation } from '@/lib/i18n/useTranslation';
 
 export function LandingPage() {
   const { setMode } = useVRStore();
+  const { t } = useTranslation();
+  const { rt } = useRenderTranslation();
 
   const handleStartCapture = useCallback(() => {
     setMode('player');
@@ -21,10 +24,6 @@ export function LandingPage() {
     (window as unknown as Record<string, unknown>).__vrTestPattern = true;
   }, [setMode]);
 
-  const handleJustPlay = useCallback(() => {
-    setMode('player');
-  }, [setMode]);
-
   return (
     <div className="w-full max-w-3xl mx-auto space-y-8">
       {/* Hero */}
@@ -34,16 +33,16 @@ export function LandingPage() {
             <Glasses className="w-10 h-10 text-primary" />
           </div>
         </div>
-        <h1 className="text-4xl font-bold tracking-tight">WebXR VR Video Player</h1>
+        <h1 className="text-4xl font-bold tracking-tight">{t('landing.title')}</h1>
         <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-          Watch VR180/360 side-by-side videos from any website in your VR headset via SteamVR
+          {t('landing.subtitle')}
         </p>
       </div>
 
       {/* How It Works */}
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-medium">How It Works</CardTitle>
+          <CardTitle className="text-base font-medium">{t('landing.howItWorks')}</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="grid grid-cols-3 gap-4 text-center">
@@ -51,27 +50,27 @@ export function LandingPage() {
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
                 <Monitor className="w-5 h-5 text-primary" />
               </div>
-              <p className="text-sm font-bold mb-1">1. Open Video</p>
+              <p className="text-sm font-bold mb-1">{t('landing.step1Title')}</p>
               <p className="text-xs text-muted-foreground">
-                Open your VR video in another browser tab (Bilibili, YouTube, etc.)
+                {t('landing.step1Desc')}
               </p>
             </div>
             <div className="p-4 rounded-xl bg-background border border-border/50">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
                 <Glasses className="w-5 h-5 text-primary" />
               </div>
-              <p className="text-sm font-bold mb-1">2. Capture &amp; Select</p>
+              <p className="text-sm font-bold mb-1">{t('landing.step2Title')}</p>
               <p className="text-xs text-muted-foreground">
-                Capture that tab, then draw a box around the video area
+                {t('landing.step2Desc')}
               </p>
             </div>
             <div className="p-4 rounded-xl bg-background border border-border/50">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
                 <ArrowRight className="w-5 h-5 text-primary" />
               </div>
-              <p className="text-sm font-bold mb-1">3. View in VR</p>
+              <p className="text-sm font-bold mb-1">{t('landing.step3Title')}</p>
               <p className="text-xs text-muted-foreground">
-                The selected area is mapped to a VR sphere/cylinder for immersive viewing
+                {t('landing.step3Desc')}
               </p>
             </div>
           </div>
@@ -84,17 +83,16 @@ export function LandingPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Monitor className="w-4 h-4 text-primary" />
-              Screen Capture
+              {t('landing.capture.title')}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <p className="text-xs text-muted-foreground mb-3">
-              Open a VR video in another browser tab, then capture that tab.
-              Works with any website — no proxy issues.
+              {t('landing.capture.desc')}
             </p>
             <Button className="w-full h-10" onClick={handleStartCapture}>
               <Monitor className="w-4 h-4 mr-2" />
-              Start Screen Capture
+              {t('landing.capture.btn')}
             </Button>
           </CardContent>
         </Card>
@@ -103,17 +101,16 @@ export function LandingPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <TestTube className="w-4 h-4" />
-              Test Pattern
+              {t('landing.testPattern.title')}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <p className="text-xs text-muted-foreground mb-3">
-              Load a built-in stereo test pattern to preview the VR player
-              and experiment with projection settings.
+              {t('landing.testPattern.desc')}
             </p>
             <Button variant="outline" className="w-full h-10" onClick={handleStartDemo}>
               <TestTube className="w-4 h-4 mr-2" />
-              Load Test Pattern
+              {t('landing.testPattern.btn')}
             </Button>
           </CardContent>
         </Card>
@@ -122,29 +119,29 @@ export function LandingPage() {
       {/* Quick Start Guide */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Quick Start Guide</CardTitle>
+          <CardTitle className="text-sm font-medium">{t('landing.quickStart.title')}</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="text-xs text-muted-foreground space-y-2">
             <div className="flex items-start gap-2">
               <span className="font-bold text-primary min-w-[16px]">1.</span>
-              <span>Open a VR video in your browser (e.g. bilibili.com VR180 video, play it fullscreen or in theater mode)</span>
+              <span>{t('landing.quickStart.step1')}</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="font-bold text-primary min-w-[16px]">2.</span>
-              <span>Come to this app and click <strong className="text-foreground">Start Screen Capture</strong></span>
+              <span>{rt('landing.quickStart.step2')}</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="font-bold text-primary min-w-[16px]">3.</span>
-              <span>Select the browser tab with the video when prompted</span>
+              <span>{t('landing.quickStart.step3')}</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="font-bold text-primary min-w-[16px]">4.</span>
-              <span>Use <strong className="text-foreground">Select Region</strong> to draw a box around the VR video area in the preview</span>
+              <span>{rt('landing.quickStart.step4')}</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="font-bold text-primary min-w-[16px]">5.</span>
-              <span>Choose the right <strong className="text-foreground">VR preset</strong> (VR180 SBS, VR360 TB, etc.) and click <strong className="text-foreground">Enter VR</strong></span>
+              <span>{rt('landing.quickStart.step5')}</span>
             </div>
           </div>
         </CardContent>
@@ -156,9 +153,9 @@ export function LandingPage() {
           <div className="flex items-start gap-3">
             <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
             <div className="text-xs text-muted-foreground space-y-1">
-              <p><span className="font-medium text-foreground">VR Mode:</span> Requires Chrome/Edge with WebXR support, a VR headset, and SteamVR running on your PC</p>
-              <p><span className="font-medium text-foreground">Screen Capture:</span> Uses your browser&apos;s built-in screen sharing — no server-side proxy, works with any website</p>
-              <p><span className="font-medium text-foreground">No Proxy:</span> This app captures your screen directly — it never loads websites through a server, avoiding CORS/412 errors entirely</p>
+              <p><span className="font-medium text-foreground">{t('landing.requirements.vrMode')}</span> {t('landing.requirements.vrModeDesc')}</p>
+              <p><span className="font-medium text-foreground">{t('landing.requirements.screenCapture')}</span> {t('landing.requirements.screenCaptureDesc')}</p>
+              <p><span className="font-medium text-foreground">{t('landing.requirements.noProxy')}</span> {t('landing.requirements.noProxyDesc')}</p>
             </div>
           </div>
         </CardContent>

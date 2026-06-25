@@ -154,3 +154,93 @@ Stage Summary:
 - VR session lifecycle now fully follows standard WebXR pattern with all user feedback incorporated
 - startRenderLoop() has explicit renderer.xr.enabled = true reset and isPresenting safety check
 - Exit VR button added to UI
+
+---
+Task ID: 5
+Agent: landing-page-i18n
+Task: Integrate i18n into landing-page.tsx
+
+Work Log:
+- Replaced all hardcoded English strings with translation keys from translations.ts
+- Added imports for useTranslation and useRenderTranslation from @/lib/i18n/useTranslation
+- Used t() for simple string translations (title, subtitle, step titles/descriptions, card titles/descriptions/buttons, requirements labels/descriptions)
+- Used rt() for strings with inline markup ({strong}...{/strong}) in quick start steps 2, 4, and 5
+- Removed unused handleJustPlay callback
+- Lint checks pass with no errors
+
+Stage Summary:
+- landing-page.tsx fully internationalized with EN/ZH support
+- All translation keys properly mapped to existing translations.ts entries
+- Simple strings use useTranslation().t(), inline markup strings use useRenderTranslation().rt()
+
+---
+Task ID: 6
+Agent: vr-player-i18n
+Task: Integrate i18n into vr-player.tsx
+
+Work Log:
+- Added useTranslation and useRenderTranslation hooks to vr-player.tsx
+- Replaced 40+ hardcoded English strings with translation keys across all UI sections
+- Used rt() for cropHint (has {strong} inline markup), t() for all other strings
+- Added t to useCallback dependency arrays for handleScreenCapture and handleEnterVR
+- Kept Play/Pause/Mute/Unmute aria-labels unchanged per spec (standard accessibility labels)
+- Did NOT modify Three.js/WebXR logic, mesh building, or session management code
+
+Stage Summary:
+- vr-player.tsx fully internationalized
+- All UI strings use translation keys from translations.ts
+- Lint passes, dev server compiles successfully
+
+---
+Task ID: 7
+Agent: vr-settings-i18n
+Task: Integrate i18n into vr-settings.tsx
+
+Work Log:
+- Added useTranslation import from @/lib/i18n/useTranslation to vr-settings.tsx
+- Replaced all hardcoded English strings with t() translation calls:
+  - "Quick Presets" → t('settings.presets')
+  - "Manual Settings" → t('settings.manualSettings')
+  - "Stereo Layout" → t('settings.stereoLayout')
+  - "Projection Type" → t('settings.projectionType')
+  - "Field of View" → t('settings.fov')
+  - "Current Configuration:" → t('settings.currentConfig')
+  - "Layout:" → t('settings.layoutLabel')
+  - "Projection:" → t('settings.projectionLabel')
+  - "FOV:" → t('settings.fovLabel')
+- Replaced preset.name with t(`preset.${preset.id}.name`) and preset.description with t(`preset.${preset.id}.desc`)
+- Replaced LAYOUT_LABELS[key] with t(`layout.${key}`) in stereo layout select and info card
+- Replaced PROJECTION_LABELS[key] with t(`projection.${key}`) in projection select and info card
+- Changed Object.entries to Object.keys for LAYOUT_LABELS and PROJECTION_LABELS iteration (no longer using the label values)
+- Kept LAYOUT_LABELS and PROJECTION_LABELS imports for key iteration
+- FOV_OPTIONS labels (90°, 110°, etc.) kept as-is since they're numeric degree values
+- Lint passes, dev server compiles successfully
+
+Stage Summary:
+- vr-settings.tsx fully internationalized with EN/ZH support
+- All translation keys already existed in translations.ts (no new keys needed)
+- All existing styling and functionality preserved
+---
+Task ID: 8
+Agent: Main
+Task: Complete i18n integration - create infrastructure, add language switcher, update page.tsx
+
+Work Log:
+- Created /src/store/language-store.ts - Zustand store for locale state (default: 'zh')
+- Created /src/lib/i18n/useTranslation.tsx - useTranslation hook (simple t() function) and useRenderTranslation hook (rt() for {strong}/{kbd}/{code} inline markup)
+- Updated /src/lib/i18n/translations.ts - added 70+ translation keys covering all UI strings (presets, settings, player, landing, footer, header, errors)
+- Updated /src/app/page.tsx - added language switcher dropdown in header, i18n for header/footer, useEffect to sync <html lang> with locale
+- Updated /src/app/layout.tsx - changed html lang from "en" to "zh" to match default locale
+- All lint checks pass, browser verification confirms:
+  - Landing page renders Chinese by default
+  - Language switcher works correctly (Chinese ↔ English)
+  - Player mode text changes with language
+  - No hydration mismatches or runtime errors
+  - <html lang> syncs with locale
+
+Stage Summary:
+- Full i18n system complete with EN/ZH support
+- Language switcher in header with 🇨🇳/🇺🇸 flags
+- 160+ translation keys covering all UI strings
+- useRenderTranslation supports {strong}/{kbd}/{code}/{br} inline markup
+- Default locale is Chinese (zh), matches target audience

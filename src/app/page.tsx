@@ -1,14 +1,31 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useVRStore } from '@/store/vr-store';
+import { useLanguageStore } from '@/store/language-store';
+import { useTranslation, AVAILABLE_LOCALES } from '@/lib/i18n/useTranslation';
 import { LandingPage } from '@/components/vr/landing-page';
 import { VRSettings } from '@/components/vr/vr-settings';
 import { VRPlayer } from '@/components/vr/vr-player';
 import { Badge } from '@/components/ui/badge';
-import { Monitor, Glasses } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Monitor, Glasses, Languages } from 'lucide-react';
 
 export default function Home() {
   const { mode } = useVRStore();
+  const { t, locale } = useTranslation();
+  const { setLocale } = useLanguageStore();
+
+  // Sync <html lang> attribute with current locale
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -21,23 +38,49 @@ export default function Home() {
                 <Glasses className="w-4 h-4 text-primary-foreground" />
               </div>
               <h1 className="text-lg font-semibold tracking-tight">
-                WebXR VR Player
+                {t('app.title')}
               </h1>
             </div>
           </div>
 
-          {/* Step indicator - only shows in player mode */}
-          {mode === 'player' && (
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-xs">
-                <Monitor className="w-3 h-3 mr-1" /> Capture
-              </Badge>
-              <div className="w-4 h-px bg-border" />
-              <Badge variant="outline" className="text-xs">
-                <Glasses className="w-3 h-3 mr-1" /> VR
-              </Badge>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {/* Step indicator - only shows in player mode */}
+            {mode === 'player' && (
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  <Monitor className="w-3 h-3 mr-1" /> {t('header.capture')}
+                </Badge>
+                <div className="w-4 h-px bg-border" />
+                <Badge variant="outline" className="text-xs">
+                  <Glasses className="w-3 h-3 mr-1" /> {t('header.vr')}
+                </Badge>
+              </div>
+            )}
+
+            {/* Language Switcher */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 px-2 gap-1.5">
+                  <Languages className="w-4 h-4" />
+                  <span className="text-xs hidden sm:inline">
+                    {AVAILABLE_LOCALES.find((l) => l.value === locale)?.label}
+                  </span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {AVAILABLE_LOCALES.map((l) => (
+                  <DropdownMenuItem
+                    key={l.value}
+                    onClick={() => setLocale(l.value)}
+                    className={locale === l.value ? 'bg-accent' : ''}
+                  >
+                    <span className="mr-2">{l.flag}</span>
+                    {l.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 
@@ -61,8 +104,8 @@ export default function Home() {
       <footer className="border-t mt-auto">
         <div className="container max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <p>WebXR VR Video Player — Capture any website&apos;s VR video for SteamVR</p>
-            <p>Requires WebXR-compatible browser &amp; VR headset</p>
+            <p>{t('footer.left')}</p>
+            <p>{t('footer.right')}</p>
           </div>
         </div>
       </footer>
