@@ -57,9 +57,9 @@ export function VRPlayer() {
   // Debounce lock to prevent multiple VR sessions from rapid clicks
   const vrEnteringRef = useRef(false);
   const meshesRef = useRef<THREE.Mesh[]>([]);
-  // Group that holds all VR meshes — rotated so the video center faces -Z (forward)
+  // VR mesh group (rotated to face -Z)
   const meshGroupRef = useRef<THREE.Group | null>(null);
-  // Whether we're using a CanvasTexture (crop canvas) that needs per-frame updates
+  // True when using CanvasTexture (needs per-frame GPU updates)
   const textureNeedsUpdateRef = useRef(false);
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cropCleanupRef = useRef<(() => void) | null>(null);
@@ -94,7 +94,6 @@ export function VRPlayer() {
   const [captureMode, setCaptureMode] = useState<'none' | 'screen' | 'test'>('none');
   // Local crop state (before confirmed to store)
   const [localCropRegion, setLocalCropRegion] = useState<CropRegion | null>(null);
-  // Drawing state for region selection on the captured preview
   const [isSelectingRegion, setIsSelectingRegion] = useState(false);
   const [drawingRect, setDrawingRect] = useState<DrawingRect | null>(null);
   const [confirmedDrawRect, setConfirmedDrawRect] = useState<{
@@ -166,14 +165,9 @@ export function VRPlayer() {
       camera.layers.enable(2);
       cameraRef.current = camera;
 
-      // KEY: Use setAnimationLoop instead of requestAnimationFrame.
-      // This is REQUIRED for WebXR — it syncs with the XR display's refresh rate
-      // and ensures frames are submitted to the VR headset.
-      // requestAnimationFrame does NOT work with WebXR.
+      // setAnimationLoop required for WebXR (requestAnimationFrame doesn't work)
       renderer.setAnimationLoop(() => {
-        // Configure XR camera stereo layers on each frame until done.
-        // This must happen after the XR camera's sub-cameras are populated,
-        // which occurs during the first render in VR mode.
+        // Configure stereo layers each frame (sub-cameras populated on first VR render)
         if (renderer.xr.isPresenting) {
           const xrCamera = renderer.xr.getCamera(camera);
           if (xrCamera && xrCamera.cameras.length === 2) {
@@ -183,9 +177,7 @@ export function VRPlayer() {
             xrCamera.cameras[1].layers.enable(2);
           }
         }
-        // Update CanvasTexture each frame when using crop canvas.
-        // VideoTexture auto-updates, but CanvasTexture doesn't — without this
-        // the VR projection shows only the first frame and stays frozen.
+        // CanvasTexture needs per-frame updates (VideoTexture auto-updates)
         if (textureNeedsUpdateRef.current && meshGroupRef.current) {
           meshGroupRef.current.children.forEach((child) => {
             if (child instanceof THREE.Mesh) {
@@ -239,13 +231,11 @@ export function VRPlayer() {
       let texture: THREE.Texture;
       if (isCanvasSource) {
         texture = new THREE.CanvasTexture(source);
-        // CanvasTexture needs per-frame GPU updates — the crop canvas is
-        // continuously redrawn by requestAnimationFrame but Three.js doesn't
-        // know the canvas has changed unless we set needsUpdate each frame.
+        // CanvasTexture needs per-frame GPU updates
         textureNeedsUpdateRef.current = true;
       } else {
         texture = new THREE.VideoTexture(source);
-        // VideoTexture auto-updates, no manual flag needed
+        // VideoTexture auto-updates
         textureNeedsUpdateRef.current = false;
       }
       texture.minFilter = THREE.LinearFilter;
@@ -257,23 +247,9 @@ export function VRPlayer() {
       const meshes = createVRMeshes(texture, layout, projection, fov);
       meshes.forEach((mesh) => group.add(mesh));
 
-      // KEY: Rotate the group so the video center faces -Z (forward direction).
-      //
-      // Three.js SphereGeometry vertex positions (phiStart=0, equator):
-      //   x = -R * cos(phi),  z = R * sin(phi)
-      //
-      // For a hemisphere (phiLength=π), u=0.5 maps to phi=π/2:
-      //   position (0, 0, R) → +Z direction (BEHIND the viewer)
-      //   We need the video center at -Z (forward), so rotate π around Y:
-      //   +Z → -Z ✓
-      //
-      // For a full sphere (phiLength=2π), u=0.5 maps to phi=π:
-      //   position (R, 0, 0) → +X direction
-      //   Rotate π/2 around Y: +X → -Z ✓
-      //
-      // For cylinder, the center is also at +X (via thetaStart),
-      //   so π/2 rotation works the same as sphere360.
-      //
+      // Rotate group so video center faces -Z (forward)
+      // hemisphere: center at +Z → rotate π around Y
+      // sphere360/cylinder: center at +X → rotate π/2 around Y
       if (projection === 'hemisphere180') {
         group.rotation.y = Math.PI;
       } else {
@@ -418,58 +394,47 @@ export function VRPlayer() {
   }, [layout, projection, fov, buildScene, cropEnabled, storeCropRegion]);
 
   // ====== Start render loop ======
-  // Centralized function to (re)start the Three.js animation loop.
-  // Must be called after renderer.xr.setSession() so the XR animation
-  // context is properly set up.
-  //
-  // IMPORTANT: renderer.xr.enabled is kept true at all times because this
-  // is a VR-capable app. When there's no active session, renderer.xr.isPresenting
-  // is false, so the render loop naturally does 2D rendering. We explicitly
-  // verify isPresenting is false before restarting as a safety measure against
-  // async race conditions during session teardown.
-  const startRenderLoop = useCallback(() => {
-    const renderer = rendererRef.current;
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    if (!renderer || !scene || !camera) return;
+  // Ref for self-referential deferred restart
+  const startRenderLoopSelfRef = useRef<() => void>(() => {});
 
-    // Safety check: if renderer is still presenting an XR session, don't restart
-    // the 2D loop. This guards against a race where onSessionEnded fires but
-    // the XR runtime hasn't fully released the GL context yet.
-    if (renderer.xr.isPresenting) {
-      console.warn('[VR] startRenderLoop: renderer still presenting, deferring restart');
-      setTimeout(() => startRenderLoop(), 100);
-      return;
-    }
+  useEffect(() => {
+    startRenderLoopSelfRef.current = () => {
+      const renderer = rendererRef.current;
+      const scene = sceneRef.current;
+      const camera = cameraRef.current;
+      if (!renderer || !scene || !camera) return;
 
-    // Ensure xr.enabled is true so the renderer can accept future XR sessions.
-    // This should always be true for a VR-capable app, but we explicitly reset
-    // it here as a safety measure after session teardown.
-    renderer.xr.enabled = true;
-
-    renderer.setAnimationLoop(() => {
       if (renderer.xr.isPresenting) {
-        const xrCamera = renderer.xr.getCamera(camera);
-        if (xrCamera && xrCamera.cameras.length === 2) {
-          xrCamera.cameras[0].layers.set(0);
-          xrCamera.cameras[0].layers.enable(1);
-          xrCamera.cameras[1].layers.set(0);
-          xrCamera.cameras[1].layers.enable(2);
-        }
+        console.warn('[VR] startRenderLoop: renderer still presenting, deferring restart');
+        setTimeout(() => startRenderLoopSelfRef.current(), 100);
+        return;
       }
-      // Update CanvasTexture each frame when using crop canvas
-      if (textureNeedsUpdateRef.current && meshGroupRef.current) {
-        meshGroupRef.current.children.forEach((child) => {
-          if (child instanceof THREE.Mesh) {
-            const mat = child.material;
-            if (mat instanceof THREE.MeshBasicMaterial && mat.map) {
-              mat.map.needsUpdate = true;
-            }
+
+      renderer.xr.enabled = true;
+
+      renderer.setAnimationLoop(() => {
+        if (renderer.xr.isPresenting) {
+          const xrCamera = renderer.xr.getCamera(camera);
+          if (xrCamera && xrCamera.cameras.length === 2) {
+            xrCamera.cameras[0].layers.set(0);
+            xrCamera.cameras[0].layers.enable(1);
+            xrCamera.cameras[1].layers.set(0);
+            xrCamera.cameras[1].layers.enable(2);
           }
-        });
-      }
-      renderer.render(scene, camera);
-    });
+        }
+        if (textureNeedsUpdateRef.current && meshGroupRef.current) {
+          meshGroupRef.current.children.forEach((child) => {
+            if (child instanceof THREE.Mesh) {
+              const mat = child.material;
+              if (mat instanceof THREE.MeshBasicMaterial && mat.map) {
+                mat.map.needsUpdate = true;
+              }
+            }
+          });
+        }
+        renderer.render(scene, camera);
+      });
+    };
   }, []);
 
   // ====== Handle resize ======
@@ -493,8 +458,7 @@ export function VRPlayer() {
 
   // ====== Screen Capture (PRIMARY METHOD) ======
   const handleScreenCapture = useCallback(async () => {
-    // Stop any existing capture stream FIRST to prevent multiple
-    // browser "sharing" notifications from appearing simultaneously.
+    // Stop existing stream first to avoid multiple sharing prompts
     const existingVideo = videoRef.current;
     if (existingVideo && existingVideo.srcObject) {
       const existingStream = existingVideo.srcObject as MediaStream;
@@ -579,28 +543,14 @@ export function VRPlayer() {
     setLocalCropRegion(null);
   }, [buildScene, generateTestPattern, setStoreCropEnabled]);
 
-  // ====== onSessionEnded: Standard WebXR session cleanup ======
-  // This function handles ALL cleanup when an XRSession ends — whether
-  // triggered by the user clicking "Exit VR", taking off the headset, or
-  // SteamVR forcing a disconnect. It follows the standard WebXR lifecycle:
-  //
-  // 1. Stop the Three.js render loop (release the XR frame pipeline)
-  // 2. Clear the session reference so no stale reference blocks re-entry
-  // 3. Reset app state (isInVR, showPreview, camera layers)
-  // 4. Restart the render loop for non-VR (2D/flat) rendering
-  //
-  // IMPORTANT: This is registered as a listener on the XRSession's 'end'
-  // event. It MUST be called for every session termination path. The 'end'
-  // event fires after session.end() resolves, which means the browser has
-  // successfully sent the disconnect signal to SteamVR/OpenXR.
+  // ====== WebXR session cleanup ======
+  // Called on session 'end' event (user exit, headset removed, SteamVR disconnect).
   const onSessionEnded = useCallback(() => {
     console.log('[VR] onSessionEnded: VR Session has ended, cleaning up...');
     const renderer = rendererRef.current;
     const camera = cameraRef.current;
 
-    // 1. Stop the render loop — this releases the XR frame submission pipeline.
-    // Without this, the loop keeps submitting frames to a dead session,
-    // which keeps SteamVR connected to Chrome.
+    // Stop render loop to release XR frame pipeline
     if (renderer) {
       renderer.setAnimationLoop(null);
     }
@@ -616,16 +566,11 @@ export function VRPlayer() {
       camera.layers.enable(2);
     }
 
-    // 4. Restart the render loop for non-VR (2D/flat) rendering.
-    // Must use setTimeout to ensure Three.js has fully processed the session
-    // end before we restart the loop. Without the delay, the new animation
-    // loop might try to use the old XR context.
-    // startRenderLoop also explicitly verifies renderer.xr.isPresenting is
-    // false and resets renderer.xr.enabled as a safety measure.
+    // Restart 2D render loop after a delay for XR context cleanup
     setTimeout(() => {
-      startRenderLoop();
+      startRenderLoopSelfRef.current();
     }, 100);
-  }, [setIsInVR, startRenderLoop]);
+  }, [setIsInVR]);
 
   // ====== Enter VR ======
   const handleEnterVR = useCallback(async () => {
@@ -642,15 +587,11 @@ export function VRPlayer() {
     try {
       vrEnteringRef.current = true;
 
-      // Check if there's an existing active session via renderer.xr.getSession().
-      // This is more reliable than vrSessionRef because it queries Three.js's
-      // actual state directly, avoiding reference desync issues.
+      // Use renderer.xr.getSession() as source of truth (avoids ref desync)
       const currentSession = renderer.xr.getSession();
       if (currentSession) {
         console.warn('[VR] Existing session found during enterVR, ending it first');
-        // End the existing session and wait for it to fully terminate.
-        // This ensures SteamVR/OpenXR properly disconnects before we request
-        // a new session.
+        // End existing session and wait for full termination
         try {
           await currentSession.end();
         } catch { /* may already be ending */ }
@@ -664,28 +605,19 @@ export function VRPlayer() {
       });
       vrSessionRef.current = session;
 
-      // CRITICAL: Register the 'end' event listener on the session BEFORE
-      // anything else. This ensures that no matter how the session ends —
-      // user clicks Exit VR, takes off headset, SteamVR force-disconnects —
-      // our cleanup handler runs and properly terminates the XR pipeline.
-      //
-      // Per WebXR standard: session.end() is async. The 'end' event fires
-      // after the browser has successfully sent the disconnect signal to
-      // the XR runtime (SteamVR/OpenXR). All cleanup must happen here.
+      // Register 'end' listener first so cleanup runs regardless of how session ends
       session.addEventListener('end', onSessionEnded);
 
       // Pass the session to Three.js's XR manager
       await renderer.xr.setSession(session);
 
-      // Restart the animation loop with the new XR session context.
-      // After renderer.xr.setSession(), the animation loop uses the
-      // session's requestAnimationFrame for VR frame timing.
-      startRenderLoop();
+      // Restart animation loop with XR session context
+      startRenderLoopSelfRef.current();
 
       setIsInVR(true);
       setShowPreview(false);
 
-      // Rebuild the scene to ensure meshes are properly attached after VR session starts
+      // Rebuild scene after VR session starts
       const video = videoRef.current;
       if (video && video.readyState >= 2) {
         if (cropEnabled && storeCropRegion && cropCanvasRef.current) {
@@ -704,14 +636,11 @@ export function VRPlayer() {
     } finally {
       vrEnteringRef.current = false;
     }
-  }, [setIsInVR, buildScene, cropEnabled, storeCropRegion, captureMode, startRenderLoop, onSessionEnded, t]);
+  }, [setIsInVR, buildScene, cropEnabled, storeCropRegion, captureMode, onSessionEnded, t]);
 
   // ====== Exit VR ======
   const handleExitVR = useCallback(async () => {
-    // Use renderer.xr.getSession() as the primary source of truth for the
-    // active session. This is more reliable than vrSessionRef because it
-    // queries Three.js's actual state directly, avoiding reference desync
-    // issues where vrSessionRef might be null but a session is still active.
+    // Use renderer.xr.getSession() as source of truth (avoids ref desync)
     const renderer = rendererRef.current;
     const currentSession = renderer?.xr.getSession() ?? null;
 
@@ -723,21 +652,12 @@ export function VRPlayer() {
     }
 
     try {
-      // Call session.end() to terminate the immersive session.
-      // This is the ONLY correct way to exit VR — it notifies the browser
-      // which sends the disconnect signal to SteamVR/OpenXR.
-      //
-      // Other operations like setAnimationLoop(null), hiding the canvas, etc.
-      // do NOT notify the XR runtime and will NOT disconnect SteamVR.
-      //
-      // After session.end() resolves, the browser fires the 'end' event on
-      // the session, which triggers our onSessionEnded() cleanup handler.
+      // session.end() is the only correct way to exit VR (triggers 'end' event → onSessionEnded)
       console.log('[VR] Calling session.end() to terminate VR session...');
       await session.end();
       console.log('[VR] session.end() resolved successfully');
     } catch (err) {
-      // If session.end() fails, force cleanup manually.
-      // This can happen if the session is already ended or in a bad state.
+      // Force manual cleanup if session.end() fails
       console.error('[VR] session.end() failed, forcing manual cleanup:', err);
 
       // Stop render loop
@@ -753,10 +673,10 @@ export function VRPlayer() {
       if (camera) { camera.layers.enable(1); camera.layers.enable(2); }
       // Restart render loop for non-VR rendering
       setTimeout(() => {
-        startRenderLoop();
+        startRenderLoopSelfRef.current();
       }, 100);
     }
-  }, [setIsInVR, startRenderLoop]);
+  }, [setIsInVR]);
 
   const handleEnterFullscreen = useCallback(() => {
     containerRef.current?.requestFullscreen();
@@ -1341,9 +1261,7 @@ function createVRMeshes(
     if (!uvAttr) return geometry;
     const uvArray = uvAttr.array as Float32Array;
     for (let i = 0; i < uvArray.length; i += 2) {
-      // Flip U coordinate (1 - u) to correct mirroring caused by viewing
-      // the inside of a sphere/cylinder with BackSide material.
-      // Without this flip, text and objects appear horizontally mirrored.
+      // Flip U to correct mirroring from BackSide material
       uvArray[i] = region.x + (1.0 - uvArray[i]) * region.w;
       uvArray[i + 1] = region.y + uvArray[i + 1] * region.h;
     }
