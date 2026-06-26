@@ -86,6 +86,7 @@ export const translations: Record<string, Record<Locale, string>> = {
   'player.projection.sphere360': { en: '360°', zh: '360°' },
   'player.projection.hemisphere180': { en: '180°', zh: '180°' },
   'player.projection.cylinder': { en: 'Cyl', zh: '柱面' },
+  'player.projection.flat': { en: 'Flat', zh: '平面' },
   'player.crop': { en: 'Crop', zh: '裁剪' },
 
   // ====== Settings ======
@@ -113,11 +114,16 @@ export const translations: Record<string, Record<Locale, string>> = {
   'preset.cylinder-sbs.desc': { en: 'Cylindrical projection like a curved movie screen, side-by-side stereo', zh: '柱面投影，如弧形电影幕布，并排立体' },
   'preset.cylinder-mono.name': { en: 'Flat Cinema (Mono)', zh: '平面影院（单目）' },
   'preset.cylinder-mono.desc': { en: 'Cylindrical projection for standard mono video, like a curved screen', zh: '标准单目视频的柱面投影，如弧形屏幕' },
+  'preset.flat-sbs.name': { en: 'Flat Screen (Side-by-Side)', zh: '平面屏幕（并排）' },
+  'preset.flat-sbs.desc': { en: 'No distortion — left/right halves displayed as flat screens to each eye', zh: '无畸变 — 左右半幅分别以平面方式显示到左右眼' },
+  'preset.flat-tb.name': { en: 'Flat Screen (Top-Bottom)', zh: '平面屏幕（上下）' },
+  'preset.flat-tb.desc': { en: 'No distortion — top/bottom halves displayed as flat screens to each eye', zh: '无畸变 — 上下半幅分别以平面方式显示到左右眼' },
 
   // ====== Projection & Layout Labels ======
   'projection.sphere360': { en: '360° Sphere', zh: '360° 球面' },
   'projection.hemisphere180': { en: '180° Hemisphere', zh: '180° 半球' },
   'projection.cylinder': { en: 'Cylinder (Cinema)', zh: '柱面（影院）' },
+  'projection.flat': { en: 'Flat (Parallel Eyes)', zh: '平面（平行眼）' },
   'layout.sbs': { en: 'Side-by-Side (Left | Right)', zh: '并排（左 | 右）' },
   'layout.tb': { en: 'Top-Bottom (Top / Bottom)', zh: '上下（上 / 下）' },
   'layout.mono': { en: 'Mono (Single View)', zh: '单目（单视图）' },

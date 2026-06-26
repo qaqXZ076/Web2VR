@@ -1,7 +1,7 @@
 // VR preset configurations for different video types
 
 export type StereoLayout = 'sbs' | 'tb' | 'mono';
-export type ProjectionType = 'sphere360' | 'hemisphere180' | 'cylinder';
+export type ProjectionType = 'sphere360' | 'hemisphere180' | 'cylinder' | 'flat';
 export type FOVPreset = '90' | '110' | '120' | '150' | '180' | 'custom';
 
 export interface VRPreset {
@@ -69,12 +69,31 @@ export const VR_PRESETS: VRPreset[] = [
     fov: 90,
     icon: '🎥',
   },
+  {
+    id: 'flat-sbs',
+    name: 'Flat Screen (Side-by-Side)',
+    description: 'No distortion — left/right halves displayed as flat screens to each eye',
+    layout: 'sbs',
+    projection: 'flat',
+    fov: 90,
+    icon: '📱',
+  },
+  {
+    id: 'flat-tb',
+    name: 'Flat Screen (Top-Bottom)',
+    description: 'No distortion — top/bottom halves displayed as flat screens to each eye',
+    layout: 'tb',
+    projection: 'flat',
+    fov: 90,
+    icon: '📟',
+  },
 ];
 
 export const PROJECTION_LABELS: Record<ProjectionType, string> = {
   sphere360: '360° Sphere',
   hemisphere180: '180° Hemisphere',
   cylinder: 'Cylinder (Cinema)',
+  flat: 'Flat (Parallel Eyes)',
 };
 
 export const LAYOUT_LABELS: Record<StereoLayout, string> = {

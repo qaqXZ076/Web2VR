@@ -304,3 +304,31 @@ Stage Summary:
 - VR180 hemisphere center now correctly faces -Z (forward) in VR
 - After VR recenter, looking straight ahead shows the center of the VR180 video
 - sphere360 and cylinder projections unchanged (already correct)
+---
+Task ID: flat-projection
+Agent: Main
+Task: Add VR flat projection (parallel eyes) feature
+
+Work Log:
+- Added 'flat' to ProjectionType union in vr-presets.ts
+- Added PROJECTION_LABELS entry: flat: 'Flat (Parallel Eyes)' / '平面（平行眼）'
+- Added two new presets: flat-sbs (📱) and flat-tb (📟)
+- Implemented flat projection geometry in createVRMeshes:
+  - Uses PlaneGeometry instead of SphereGeometry/CylinderGeometry
+  - Virtual screen at distance=4, size scales with FOV setting
+  - DoubleSide material (camera sees the plane from behind)
+  - Same modifyUVs (1-u flip) to correct mirroring
+  - UV regions map left/right or top/bottom halves to each eye
+- Updated buildScene rotation logic: flat projection uses rotation.y = 0
+  (planes already positioned at -Z via geometry.translate)
+- Added translations: projection.flat, preset.flat-sbs/tb names & descriptions, player.projection.flat
+- All lint checks pass, browser verification confirms:
+  - "平面（平行眼）" option in projection dropdown
+  - "平面屏幕（并排）" and "平面屏幕（上下）" presets visible
+  - Selection works correctly
+
+Stage Summary:
+- New flat projection type added alongside sphere360, hemisphere180, cylinder
+- Two presets: Flat Screen SBS (📱) and Flat Screen TB (📟)
+- No distortion — each eye sees its half as a flat screen in front of viewer
+- Screen size scales with FOV slider (larger FOV = bigger virtual screen)
