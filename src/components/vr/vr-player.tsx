@@ -57,6 +57,10 @@ export function VRPlayer() {
   // Debounce lock to prevent multiple VR sessions from rapid clicks
   const vrEnteringRef = useRef(false);
   const meshesRef = useRef<THREE.Mesh[]>([]);
+  // Group that holds all VR meshes — rotated so the video center faces -Z (forward)
+  const meshGroupRef = useRef<THREE.Group | null>(null);
+  // Whether we're using a CanvasTexture (crop canvas) that needs per-frame updates
+  const textureNeedsUpdateRef = useRef(false);
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cropCleanupRef = useRef<(() => void) | null>(null);
 
@@ -179,6 +183,19 @@ export function VRPlayer() {
             xrCamera.cameras[1].layers.enable(2);
           }
         }
+        // Update CanvasTexture each frame when using crop canvas.
+        // VideoTexture auto-updates, but CanvasTexture doesn't — without this
+        // the VR projection shows only the first frame and stays frozen.
+        if (textureNeedsUpdateRef.current && meshGroupRef.current) {
+          meshGroupRef.current.children.forEach((child) => {
+            if (child instanceof THREE.Mesh) {
+              const mat = child.material;
+              if (mat instanceof THREE.MeshBasicMaterial && mat.map) {
+                mat.map.needsUpdate = true;
+              }
+            }
+          });
+        }
         renderer.render(scene, camera);
       });
 
@@ -199,29 +216,60 @@ export function VRPlayer() {
       const scene = sceneRef.current;
       if (!scene) return;
 
-      meshesRef.current.forEach((mesh) => {
-        scene.remove(mesh);
-        mesh.geometry.dispose();
-        if (Array.isArray(mesh.material)) {
-          mesh.material.forEach((m) => m.dispose());
-        } else {
-          mesh.material.dispose();
-        }
-      });
-      meshesRef.current = [];
+      // Remove old mesh group from scene
+      const oldGroup = meshGroupRef.current;
+      if (oldGroup) {
+        scene.remove(oldGroup);
+        // Dispose old meshes
+        oldGroup.children.forEach((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m) => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
+        oldGroup.clear();
+      }
 
+      // Create texture
+      const isCanvasSource = source instanceof HTMLCanvasElement;
       let texture: THREE.Texture;
-      if (source instanceof HTMLCanvasElement) {
+      if (isCanvasSource) {
         texture = new THREE.CanvasTexture(source);
+        // CanvasTexture needs per-frame GPU updates — the crop canvas is
+        // continuously redrawn by requestAnimationFrame but Three.js doesn't
+        // know the canvas has changed unless we set needsUpdate each frame.
+        textureNeedsUpdateRef.current = true;
       } else {
         texture = new THREE.VideoTexture(source);
+        // VideoTexture auto-updates, no manual flag needed
+        textureNeedsUpdateRef.current = false;
       }
       texture.minFilter = THREE.LinearFilter;
       texture.magFilter = THREE.LinearFilter;
       texture.colorSpace = THREE.SRGBColorSpace;
 
+      // Create meshes and add them to a Group
+      const group = new THREE.Group();
       const meshes = createVRMeshes(texture, layout, projection, fov);
-      meshes.forEach((mesh) => scene.add(mesh));
+      meshes.forEach((mesh) => group.add(mesh));
+
+      // KEY: Rotate the group so the video center faces -Z (forward direction).
+      //
+      // Three.js SphereGeometry with phiStart=0 starts at +Z, so for a
+      // hemisphere (phiLength=π), the UV center (phi=π/2) ends up at +X.
+      // The VR headset looks forward at -Z, so we must rotate +90° around Y
+      // to move the video center from +X to -Z.
+      //
+      // For a full 360° sphere this doesn't matter (the video wraps around),
+      // but applying the rotation uniformly keeps behavior consistent.
+      group.rotation.y = Math.PI / 2;
+
+      scene.add(group);
+      meshGroupRef.current = group;
       meshesRef.current = meshes;
 
       const camera = cameraRef.current;
@@ -397,6 +445,17 @@ export function VRPlayer() {
           xrCamera.cameras[1].layers.enable(2);
         }
       }
+      // Update CanvasTexture each frame when using crop canvas
+      if (textureNeedsUpdateRef.current && meshGroupRef.current) {
+        meshGroupRef.current.children.forEach((child) => {
+          if (child instanceof THREE.Mesh) {
+            const mat = child.material;
+            if (mat instanceof THREE.MeshBasicMaterial && mat.map) {
+              mat.map.needsUpdate = true;
+            }
+          }
+        });
+      }
       renderer.render(scene, camera);
     });
   }, []);
@@ -422,6 +481,20 @@ export function VRPlayer() {
 
   // ====== Screen Capture (PRIMARY METHOD) ======
   const handleScreenCapture = useCallback(async () => {
+    // Stop any existing capture stream FIRST to prevent multiple
+    // browser "sharing" notifications from appearing simultaneously.
+    const existingVideo = videoRef.current;
+    if (existingVideo && existingVideo.srcObject) {
+      const existingStream = existingVideo.srcObject as MediaStream;
+      existingStream.getTracks().forEach((track) => track.stop());
+      existingVideo.srcObject = null;
+    }
+    // Also clean up any running crop canvas
+    if (cropCleanupRef.current) {
+      cropCleanupRef.current();
+      cropCleanupRef.current = null;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { width: { ideal: 3840 }, height: { ideal: 2160 } },
@@ -438,6 +511,9 @@ export function VRPlayer() {
       setHasVideo(true);
       setCaptureMode('screen');
       setVideoError(null);
+
+      // Reset camera to look forward at the video center
+      cameraRotation.current = { lon: 0, lat: 0 };
 
       // If there's already a crop region, use it
       if (cropEnabled && storeCropRegion) {
