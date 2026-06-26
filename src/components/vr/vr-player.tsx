@@ -274,12 +274,7 @@ export function VRPlayer() {
       // For cylinder, the center is also at +X (via thetaStart),
       //   so π/2 rotation works the same as sphere360.
       //
-      // For flat projection, planes are already positioned at -Z via
-      //   geometry.translate(), so no group rotation is needed.
-      //
-      if (projection === 'flat') {
-        group.rotation.y = 0;
-      } else if (projection === 'hemisphere180') {
+      if (projection === 'hemisphere180') {
         group.rotation.y = Math.PI;
       } else {
         group.rotation.y = Math.PI / 2;
@@ -1325,57 +1320,6 @@ function createVRMeshes(
 ): THREE.Mesh[] {
   const meshes: THREE.Mesh[] = [];
 
-  // ====== Flat projection: no distortion, each eye sees a flat screen ======
-  if (projection === 'flat') {
-    // Virtual screen distance and size — feels like sitting 3m from a large monitor
-    const distance = 4;
-    // Use fov to scale screen size: larger fov → bigger screen
-    const screenFov = (fov * Math.PI) / 180;
-    const screenWidth = 2 * distance * Math.tan(screenFov / 2);
-    const screenHeight = screenWidth * (9 / 16); // assume 16:9 aspect
-
-    function createFlatMesh(uvRegion: { x: number; y: number; w: number; h: number }): THREE.Mesh {
-      const geometry = new THREE.PlaneGeometry(screenWidth, screenHeight);
-      // Position the plane in front of the viewer (-Z direction)
-      geometry.translate(0, 0, -distance);
-      modifyUVs(geometry, uvRegion);
-      return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }));
-    }
-
-    switch (layout) {
-      case 'sbs': {
-        const leftMesh = createFlatMesh({ x: 0, y: 0, w: 0.5, h: 1 });
-        leftMesh.layers.set(1);
-        meshes.push(leftMesh);
-
-        const rightMesh = createFlatMesh({ x: 0.5, y: 0, w: 0.5, h: 1 });
-        rightMesh.layers.set(2);
-        meshes.push(rightMesh);
-        break;
-      }
-      case 'tb': {
-        const leftMesh = createFlatMesh({ x: 0, y: 0.5, w: 1, h: 0.5 });
-        leftMesh.layers.set(1);
-        meshes.push(leftMesh);
-
-        const rightMesh = createFlatMesh({ x: 0, y: 0, w: 1, h: 0.5 });
-        rightMesh.layers.set(2);
-        meshes.push(rightMesh);
-        break;
-      }
-      case 'mono': {
-        const mesh = createFlatMesh({ x: 0, y: 0, w: 1, h: 1 });
-        mesh.layers.enable(1);
-        mesh.layers.enable(2);
-        meshes.push(mesh);
-        break;
-      }
-    }
-    return meshes;
-  }
-
-  // ====== Curved projection: sphere / hemisphere / cylinder ======
-
   function createGeometry(phiLength: number): THREE.BufferGeometry {
     switch (projection) {
       case 'sphere360':
@@ -1398,8 +1342,7 @@ function createVRMeshes(
     const uvArray = uvAttr.array as Float32Array;
     for (let i = 0; i < uvArray.length; i += 2) {
       // Flip U coordinate (1 - u) to correct mirroring caused by viewing
-      // the inside of a sphere/cylinder with BackSide material, or the
-      // back face of a flat plane.
+      // the inside of a sphere/cylinder with BackSide material.
       // Without this flip, text and objects appear horizontally mirrored.
       uvArray[i] = region.x + (1.0 - uvArray[i]) * region.w;
       uvArray[i + 1] = region.y + uvArray[i + 1] * region.h;
