@@ -244,3 +244,24 @@ Stage Summary:
 - 160+ translation keys covering all UI strings
 - useRenderTranslation supports {strong}/{kbd}/{code}/{br} inline markup
 - Default locale is Chinese (zh), matches target audience
+---
+Task ID: 10
+Agent: Main
+Task: Remove requirements info card from landing page + create multi-platform packaging scripts
+
+Work Log:
+- Removed "VR Mode", "Screen Capture", "No Proxy" info card from landing-page.tsx
+- Removed unused Info import from lucide-react
+- Created scripts/package.js — cross-platform Node.js packager supporting linux-x64, win-x64, darwin-arm64, darwin-x64, all
+- Created scripts/package-linux.sh — standalone Linux shell script packager
+- Created scripts/package-windows.bat — standalone Windows batch file packager
+- Added npm scripts: package, package:linux, package:win, package:mac, package:all
+- Tested Linux packaging: 83MB tar.gz, starts correctly on port 3099
+- Tested Windows packaging: 67MB zip with start.bat and start.ps1 launchers
+- Each package bundles: Node.js v22.16.0 runtime + Next.js standalone server + launcher scripts + README
+
+Stage Summary:
+- Landing page cleaned up (removed requirements card)
+- Three packaging scripts created (cross-platform JS, Linux shell, Windows batch)
+- Both Linux and Windows packages verified to build and contain correct files
+- Package structure: dist/{app-name}/app/ (Next.js) + node-runtime/ (Node.js) + start.sh/bat + README.md

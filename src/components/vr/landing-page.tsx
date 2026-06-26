@@ -4,7 +4,7 @@ import { useCallback } from 'react';
 import { useVRStore } from '@/store/vr-store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Glasses, Monitor, TestTube, ArrowRight, Info } from 'lucide-react';
+import { Glasses, Monitor, TestTube, ArrowRight } from 'lucide-react';
 import { useTranslation, useRenderTranslation } from '@/lib/i18n/useTranslation';
 
 export function LandingPage() {
@@ -147,19 +147,6 @@ export function LandingPage() {
         </CardContent>
       </Card>
 
-      {/* Requirements */}
-      <Card>
-        <CardContent className="pt-4 pb-4">
-          <div className="flex items-start gap-3">
-            <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-            <div className="text-xs text-muted-foreground space-y-1">
-              <p><span className="font-medium text-foreground">{t('landing.requirements.vrMode')}</span> {t('landing.requirements.vrModeDesc')}</p>
-              <p><span className="font-medium text-foreground">{t('landing.requirements.screenCapture')}</span> {t('landing.requirements.screenCaptureDesc')}</p>
-              <p><span className="font-medium text-foreground">{t('landing.requirements.noProxy')}</span> {t('landing.requirements.noProxyDesc')}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
