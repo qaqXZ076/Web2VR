@@ -259,14 +259,26 @@ export function VRPlayer() {
 
       // KEY: Rotate the group so the video center faces -Z (forward direction).
       //
-      // Three.js SphereGeometry with phiStart=0 starts at +Z, so for a
-      // hemisphere (phiLength=π), the UV center (phi=π/2) ends up at +X.
-      // The VR headset looks forward at -Z, so we must rotate +90° around Y
-      // to move the video center from +X to -Z.
+      // Three.js SphereGeometry vertex positions (phiStart=0, equator):
+      //   x = -R * cos(phi),  z = R * sin(phi)
       //
-      // For a full 360° sphere this doesn't matter (the video wraps around),
-      // but applying the rotation uniformly keeps behavior consistent.
-      group.rotation.y = Math.PI / 2;
+      // For a hemisphere (phiLength=π), u=0.5 maps to phi=π/2:
+      //   position (0, 0, R) → +Z direction (BEHIND the viewer)
+      //   We need the video center at -Z (forward), so rotate π around Y:
+      //   +Z → -Z ✓
+      //
+      // For a full sphere (phiLength=2π), u=0.5 maps to phi=π:
+      //   position (R, 0, 0) → +X direction
+      //   Rotate π/2 around Y: +X → -Z ✓
+      //
+      // For cylinder, the center is also at +X (via thetaStart),
+      //   so π/2 rotation works the same as sphere360.
+      //
+      if (projection === 'hemisphere180') {
+        group.rotation.y = Math.PI;
+      } else {
+        group.rotation.y = Math.PI / 2;
+      }
 
       scene.add(group);
       meshGroupRef.current = group;

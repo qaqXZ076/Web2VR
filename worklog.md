@@ -282,3 +282,25 @@ Stage Summary:
 - Mirroring fix applied by flipping U coordinate in modifyUVs function
 - The fix works for all projection types and stereo layouts
 - No other code changes needed
+---
+Task ID: vr180-centering-fix
+Agent: Main
+Task: Fix VR180 hemisphere center not aligned to VR forward direction
+
+Work Log:
+- Analyzed Three.js SphereGeometry coordinate mapping for phiStart=0
+- Discovered the root cause: the code comment was WRONG — it claimed "UV center ends up at +X" for hemisphere, but actual mapping is:
+  - Hemisphere (phiLength=π): u=0.5 → phi=π/2 → position (0,0,R) = +Z direction (BEHIND viewer)
+  - Full sphere (phiLength=2π): u=0.5 → phi=π → position (R,0,0) = +X direction
+- With rotation.y = π/2: hemisphere video center (+Z) maps to +X (90° right), so looking forward (-Z) shows the LEFT edge of the video
+- Fix: projection-dependent rotation:
+  - hemisphere180: rotation.y = π (moves +Z → -Z, video center forward ✓)
+  - sphere360: rotation.y = π/2 (moves +X → -Z, video center forward ✓)
+  - cylinder: rotation.y = π/2 (center at +X via thetaStart, moves to -Z ✓)
+- Updated comment with correct coordinate analysis
+- Lint passes, page loads correctly
+
+Stage Summary:
+- VR180 hemisphere center now correctly faces -Z (forward) in VR
+- After VR recenter, looking straight ahead shows the center of the VR180 video
+- sphere360 and cylinder projections unchanged (already correct)
