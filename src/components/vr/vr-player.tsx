@@ -1329,7 +1329,10 @@ function createVRMeshes(
     if (!uvAttr) return geometry;
     const uvArray = uvAttr.array as Float32Array;
     for (let i = 0; i < uvArray.length; i += 2) {
-      uvArray[i] = region.x + uvArray[i] * region.w;
+      // Flip U coordinate (1 - u) to correct mirroring caused by viewing
+      // the inside of a sphere/cylinder with BackSide material.
+      // Without this flip, text and objects appear horizontally mirrored.
+      uvArray[i] = region.x + (1.0 - uvArray[i]) * region.w;
       uvArray[i + 1] = region.y + uvArray[i + 1] * region.h;
     }
     uvAttr.needsUpdate = true;

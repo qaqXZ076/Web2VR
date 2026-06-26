@@ -1,0 +1,585 @@
+     1→   800→   800→      if (!rect) return;
+     2→   801→   801→      const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+     3→   802→   802→      const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+     4→   803→   803→      setDrawingRect((prev) =>
+     5→   804→   804→        prev ? { ...prev, endX: x, endY: y } : null
+     6→   805→   805→      );
+     7→   806→   806→    },
+     8→   807→   807→    [isSelectingRegion, drawingRect]
+     9→   808→   808→  );
+    10→   809→   809→
+    11→   810→   810→  const handlePreviewMouseUp = useCallback(() => {
+    12→   811→   811→    if (!isSelectingRegion || !drawingRect) return;
+    13→   812→   812→    const w = Math.abs(drawingRect.endX - drawingRect.startX);
+    14→   813→   813→    const h = Math.abs(drawingRect.endY - drawingRect.startY);
+    15→   814→   814→    if (w > 10 && h > 10) {
+    16→   815→   815→      setConfirmedDrawRect({
+    17→   816→   816→        x: Math.min(drawingRect.startX, drawingRect.endX),
+    18→   817→   817→        y: Math.min(drawingRect.startY, drawingRect.endY),
+    19→   818→   818→        width: w,
+    20→   819→   819→        height: h,
+    21→   820→   820→      });
+    22→   821→   821→    }
+    23→   822→   822→  }, [isSelectingRegion, drawingRect]);
+    24→   823→   823→
+    25→   824→   824→  // Confirm the drawn region and apply crop
+    26→   825→   825→  const handleConfirmRegion = useCallback(() => {
+    27→   826→   826→    if (!confirmedDrawRect || !previewContainerRef.current) return;
+    28→   827→   827→    const containerRect = previewContainerRef.current.getBoundingClientRect();
+    29→   828→   828→    const region: CropRegion = {
+    30→   829→   829→      x: confirmedDrawRect.x / containerRect.width,
+    31→   830→   830→      y: confirmedDrawRect.y / containerRect.height,
+    32→   831→   831→      width: confirmedDrawRect.width / containerRect.width,
+    33→   832→   832→      height: confirmedDrawRect.height / containerRect.height,
+    34→   833→   833→    };
+    35→   834→   834→
+    36→   835→   835→    setLocalCropRegion(region);
+    37→   836→   836→    setStoreCropRegion(region);
+    38→   837→   837→    setStoreCropEnabled(true);
+    39→   838→   838→    setIsSelectingRegion(false);
+    40→   839→   839→    setDrawingRect(null);
+    41→   840→   840→    setConfirmedDrawRect(null);
+    42→   841→   841→
+    43→   842→   842→    // Start crop canvas if we have a video
+    44→   843→   843→    const video = videoRef.current;
+    45→   844→   844→    if (video && video.readyState >= 2) {
+    46→   845→   845→      // Clean up previous crop
+    47→   846→   846→      if (cropCleanupRef.current) {
+    48→   847→   847→        cropCleanupRef.current();
+    49→   848→   848→        cropCleanupRef.current = null;
+    50→   849→   849→      }
+    51→   850→   850→      const cleanup = startCropCanvas(video, region);
+    52→   851→   851→      cropCleanupRef.current = cleanup;
+    53→   852→   852→      // Wait a frame then rebuild scene with crop canvas
+    54→   853→   853→      requestAnimationFrame(() => {
+    55→   854→   854→        if (cropCanvasRef.current) {
+    56→   855→   855→          buildScene(cropCanvasRef.current);
+    57→   856→   856→        }
+    58→   857→   857→      });
+    59→   858→   858→    }
+    60→   859→   859→  }, [confirmedDrawRect, setStoreCropRegion, setStoreCropEnabled, startCropCanvas, buildScene]);
+    61→   860→   860→
+    62→   861→   861→  // Toggle crop on/off
+    63→   862→   862→  const handleToggleCrop = useCallback(() => {
+    64→   863→   863→    if (cropEnabled) {
+    65→   864→   864→      // Disable crop
+    66→   865→   865→      setStoreCropEnabled(false);
+    67→   866→   866→      setStoreCropRegion(null);
+    68→   867→   867→      setLocalCropRegion(null);
+    69→   868→   868→      if (cropCleanupRef.current) {
+    70→   869→   869→        cropCleanupRef.current();
+    71→   870→   870→        cropCleanupRef.current = null;
+    72→   871→   871→      }
+    73→   872→   872→      const video = videoRef.current;
+    74→   873→   873→      if (video && video.readyState >= 2) {
+    75→   874→   874→        buildScene(video);
+    76→   875→   875→      }
+    77→   876→   876→    } else if (localCropRegion) {
+    78→   877→   877→      // Re-enable with saved region
+    79→   878→   878→      setStoreCropEnabled(true);
+    80→   879→   879→      const video = videoRef.current;
+    81→   880→   880→      if (video && video.readyState >= 2) {
+    82→   881→   881→        const cleanup = startCropCanvas(video, localCropRegion);
+    83→   882→   882→        cropCleanupRef.current = cleanup;
+    84→   883→   883→        requestAnimationFrame(() => {
+    85→   884→   884→          if (cropCanvasRef.current) {
+    86→   885→   885→            buildScene(cropCanvasRef.current);
+    87→   886→   886→          }
+    88→   887→   887→        });
+    89→   888→   888→      }
+    90→   889→   889→    } else {
+    91→   890→   890→      // No region saved - prompt to select
+    92→   891→   891→      setIsSelectingRegion(true);
+    93→   892→   892→    }
+    94→   893→   893→  }, [cropEnabled, localCropRegion, setStoreCropEnabled, setStoreCropRegion, startCropCanvas, buildScene]);
+    95→   894→   894→
+    96→   895→   895→  // ====== Go back ======
+    97→   896→   896→  const handleGoBack = useCallback(() => {
+    98→   897→   897→    const video = videoRef.current;
+    99→   898→   898→    if (video) { video.pause(); video.src = ''; video.srcObject = null; videoRef.current = null; }
+   100→   899→   899→    if (cropCleanupRef.current) { cropCleanupRef.current(); cropCleanupRef.current = null; }
+   101→   900→   900→    const renderer = rendererRef.current;
+   102→   901→   901→    if (renderer) { renderer.dispose(); rendererRef.current = null; }
+   103→   902→   902→    setHasVideo(false);
+   104→   903→   903→    setMode('landing');
+   105→   904→   904→  }, [setMode]);
+   106→   905→   905→
+   107→   906→   906→  // ====== Keyboard shortcuts ======
+   108→   907→   907→  useEffect(() => {
+   109→   908→   908→    const handleKeyDown = (e: KeyboardEvent) => {
+   110→   909→   909→      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+   111→   910→   910→      switch (e.key) {
+   112→   911→   911→        case ' ': e.preventDefault(); handlePlayPause(); break;
+   113→   912→   912→        case 'f': handleEnterFullscreen(); break;
+   114→   913→   913→        case 'm': handleMuteToggle(); break;
+   115→   914→   914→        case 'Escape': if (isInVR) handleExitVR(); break;
+   116→   915→   915→      }
+   117→   916→   916→    };
+   118→   917→   917→    window.addEventListener('keydown', handleKeyDown);
+   119→   918→   918→    return () => window.removeEventListener('keydown', handleKeyDown);
+   120→   919→   919→  }, [handlePlayPause, handleEnterFullscreen, handleMuteToggle, isInVR]);
+   121→   920→   920→
+   122→   921→   921→  // ====== Mouse drag on VR canvas ======
+   123→   922→   922→  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+   124→   923→   923→    isDragging.current = true;
+   125→   924→   924→    prevMouse.current = { x: e.clientX, y: e.clientY };
+   126→   925→   925→    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+   127→   926→   926→  }, []);
+   128→   927→   927→
+   129→   928→   928→  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+   130→   929→   929→    if (!isDragging.current) return;
+   131→   930→   930→    const camera = cameraRef.current;
+   132→   931→   931→    if (!camera) return;
+   133→   932→   932→    const dx = e.clientX - prevMouse.current.x;
+   134→   933→   933→    const dy = e.clientY - prevMouse.current.y;
+   135→   934→   934→    cameraRotation.current.lon -= dx * 0.3;
+   136→   935→   935→    cameraRotation.current.lat += dy * 0.3;
+   137→   936→   936→    cameraRotation.current.lat = Math.max(-85, Math.min(85, cameraRotation.current.lat));
+   138→   937→   937→    const phi = ((90 - cameraRotation.current.lat) * Math.PI) / 180;
+   139→   938→   938→    const theta = (cameraRotation.current.lon * Math.PI) / 180;
+   140→   939→   939→    camera.lookAt(new THREE.Vector3(
+   141→   940→   940→      500 * Math.sin(phi) * Math.cos(theta),
+   142→   941→   941→      500 * Math.cos(phi),
+   143→   942→   942→      500 * Math.sin(phi) * Math.sin(theta)
+   144→   943→   943→    ));
+   145→   944→   944→    prevMouse.current = { x: e.clientX, y: e.clientY };
+   146→   945→   945→  }, []);
+   147→   946→   946→
+   148→   947→   947→  const handlePointerUp = useCallback(() => { isDragging.current = false; }, []);
+   149→   948→   948→
+   150→   949→   949→  const captureModeLabel =
+   151→   950→   950→    captureMode === 'screen' ? t('player.source.screenCapture') :
+   152→   951→   951→    captureMode === 'test' ? t('player.source.testPattern') : t('player.source.noSource');
+   153→   952→   952→
+   154→   953→   953→  // Compute drawing rect styles
+   155→   954→   954→  const drawingStyle = drawingRect
+   156→   955→   955→    ? {
+   157→   956→   956→        left: `${Math.min(drawingRect.startX, drawingRect.endX)}px`,
+   158→   957→   957→        top: `${Math.min(drawingRect.startY, drawingRect.endY)}px`,
+   159→   958→   958→        width: `${Math.abs(drawingRect.endX - drawingRect.startX)}px`,
+   160→   959→   959→        height: `${Math.abs(drawingRect.endY - drawingRect.startY)}px`,
+   161→   960→   960→      }
+   162→   961→   961→    : null;
+   163→   962→   962→
+   164→   963→   963→  const confirmedStyle = confirmedDrawRect
+   165→   964→   964→    ? {
+   166→   965→   965→        left: `${confirmedDrawRect.x}px`,
+   167→   966→   966→        top: `${confirmedDrawRect.y}px`,
+   168→   967→   967→        width: `${confirmedDrawRect.width}px`,
+   169→   968→   968→        height: `${confirmedDrawRect.height}px`,
+   170→   969→   969→      }
+   171→   970→   970→    : null;
+   172→   971→   971→
+   173→   972→   972→  return (
+   174→   973→   973→    <TooltipProvider>
+   175→   974→   974→      <div className="w-full space-y-4">
+   176→   975→   975→        {/* Top bar */}
+   177→   976→   976→        <div className="flex items-center justify-between flex-wrap gap-2">
+   178→   977→   977→          <div className="flex items-center gap-2">
+   179→   978→   978→            <Button variant="ghost" size="sm" onClick={handleGoBack}>
+   180→   979→   979→              <ArrowLeft className="w-4 h-4 mr-1" /> {t('player.back')}
+   181→   980→   980→            </Button>
+   182→   981→   981→            <div className="h-4 w-px bg-border" />
+   183→   982→   982→            <Badge variant="outline" className="text-xs">{captureModeLabel}</Badge>
+   184→   983→   983→            {cropEnabled && storeCropRegion && (
+   185→   984→   984→              <Badge variant="outline" className="text-xs">
+   186→   985→   985→                <Crop className="w-3 h-3 mr-1" />
+   187→   986→   986→                {t('player.crop')}: {Math.round(storeCropRegion.width * 100)}%×{Math.round(storeCropRegion.height * 100)}%
+   188→   987→   987→              </Badge>
+   189→   988→   988→            )}
+   190→   989→   989→            {isInVR && (
+   191→   990→   990→              <Badge className="bg-green-600 text-white text-xs">
+   192→   991→   991→                <Glasses className="w-3 h-3 mr-1" /> {t('player.vrActive')}
+   193→   992→   992→              </Badge>
+   194→   993→   993→            )}
+   195→   994→   994→          </div>
+   196→   995→   995→          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+   197→   996→   996→            <Info className="w-3 h-3" />
+   198→   997→   997→            <span>
+   199→   998→   998→              {layout === 'sbs' ? t('player.layout.sbs') : layout === 'tb' ? t('player.layout.tb') : t('player.layout.mono')} ·{' '}
+   200→   999→   999→              {projection === 'sphere360' ? t('player.projection.sphere360') : projection === 'hemisphere180' ? t('player.projection.hemisphere180') : t('player.projection.cylinder')} · {fov}°
+   201→  1000→  1000→            </span>
+   202→  1001→  1001→          </div>
+   203→  1002→  1002→        </div>
+   204→  1003→  1003→
+   205→  1004→  1004→        {/* Error */}
+   206→  1005→  1005→        {videoError && (
+   207→  1006→  1006→          <Card className="border-destructive/50 bg-destructive/5">
+   208→  1007→  1007→            <CardContent className="pt-4 pb-4 flex items-start gap-3">
+   209→  1008→  1008→              <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+   210→  1009→  1009→              <div className="space-y-2 flex-1">
+   211→  1010→  1010→                <p className="text-sm text-destructive">{videoError}</p>
+   212→  1011→  1011→                <div className="flex gap-2 flex-wrap">
+   213→  1012→  1012→                  <Button size="sm" variant="outline" onClick={handleScreenCapture}>
+   214→  1013→  1013→                    <Monitor className="w-3 h-3 mr-1" /> {t('player.screenCapture')}
+   215→  1014→  1014→                  </Button>
+   216→  1015→  1015→                  <Button size="sm" variant="outline" onClick={handleTestPattern}>
+   217→  1016→  1016→                    <TestTube className="w-3 h-3 mr-1" /> {t('player.testPattern')}
+   218→  1017→  1017→                  </Button>
+   219→  1018→  1018→                </div>
+   220→  1019→  1019→              </div>
+   221→  1020→  1020→            </CardContent>
+   222→  1021→  1021→          </Card>
+   223→  1022→  1022→        )}
+   224→  1023→  1023→
+   225→  1024→  1024→        {/* Captured video preview with region selection */}
+   226→  1025→  1025→        {hasVideo && captureMode === 'screen' && !isInVR && (
+   227→  1026→  1026→          <Card>
+   228→  1027→  1027→            <CardContent className="pt-4 pb-3 space-y-3">
+   229→  1028→  1028→              <div className="flex items-center justify-between">
+   230→  1029→  1029→                <p className="text-sm font-medium">{t('player.capturedPreview')}</p>
+   231→  1030→  1030→                <div className="flex items-center gap-2">
+   232→  1031→  1031→                  {isSelectingRegion ? (
+   233→  1032→  1032→                    <>
+   234→  1033→  1033→                      <span className="text-xs text-muted-foreground">
+   235→  1034→  1034→                        {t('player.drawRectangle')}
+   236→  1035→  1035→                      </span>
+   237→  1036→  1036→                      {confirmedDrawRect && (
+   238→  1037→  1037→                        <Button size="sm" onClick={handleConfirmRegion}>
+   239→  1038→  1038→                          <Check className="w-3.5 h-3.5 mr-1" /> {t('player.applyCrop')}
+   240→  1039→  1039→                        </Button>
+   241→  1040→  1040→                      )}
+   242→  1041→  1041→                      <Button size="sm" variant="ghost" onClick={handleCancelRegionSelect}>
+   243→  1042→  1042→                        <X className="w-3.5 h-3.5 mr-1" /> {t('player.cancel')}
+   244→  1043→  1043→                      </Button>
+   245→  1044→  1044→                    </>
+   246→  1045→  1045→                  ) : (
+   247→  1046→  1046→                    <>
+   248→  1047→  1047→                      <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop}>
+   249→  1048→  1048→                        <MousePointer2 className="w-3.5 h-3.5 mr-1" />
+   250→  1049→  1049→                        {cropEnabled ? t('player.resetRegion') : t('player.selectRegion')}
+   251→  1050→  1050→                      </Button>
+   252→  1051→  1051→                      <Button size="sm" variant="outline" onClick={handleScreenCapture}>
+   253→  1052→  1052→                        <Monitor className="w-3.5 h-3.5 mr-1" /> {t('player.recapture')}
+   254→  1053→  1053→                      </Button>
+   255→  1054→  1054→                    </>
+   256→  1055→  1055→                  )}
+   257→  1056→  1056→                </div>
+   258→  1057→  1057→              </div>
+   259→  1058→  1058→
+   260→  1059→  1059→              {/* Preview with drawing overlay */}
+   261→  1060→  1060→              <div
+   262→  1061→  1061→                ref={previewContainerRef}
+   263→  1062→  1062→                className={`relative rounded-lg overflow-hidden bg-black border ${
+   264→  1063→  1063→                  isSelectingRegion ? 'cursor-crosshair' : ''
+   265→  1064→  1064→                }`}
+   266→  1065→  1065→                style={{ height: '200px' }}
+   267→  1066→  1066→                onMouseDown={handlePreviewMouseDown}
+   268→  1067→  1067→                onMouseMove={handlePreviewMouseMove}
+   269→  1068→  1068→                onMouseUp={handlePreviewMouseUp}
+   270→  1069→  1069→              >
+   271→  1070→  1070→                {/* Show the captured video element */}
+   272→  1071→  1071→                <video
+   273→  1072→  1072→                  ref={(el) => {
+   274→  1073→  1073→                    if (el && videoRef.current && videoRef.current.srcObject) {
+   275→  1074→  1074→                      el.srcObject = videoRef.current.srcObject;
+   276→  1075→  1075→                      el.muted = true;
+   277→  1076→  1076→                      el.play().catch(() => {});
+   278→  1077→  1077→                    }
+   279→  1078→  1078→                  }}
+   280→  1079→  1079→                  className="w-full h-full object-contain"
+   281→  1080→  1080→                  muted
+   282→  1081→  1081→                  playsInline
+   283→  1082→  1082→                />
+   284→  1083→  1083→
+   285→  1084→  1084→                {/* Drawing rectangle (while dragging) */}
+   286→  1085→  1085→                {drawingStyle && !confirmedDrawRect && (
+   287→  1086→  1086→                  <div
+   288→  1087→  1087→                    className="absolute border-2 border-dashed border-primary bg-primary/10 z-10"
+   289→  1088→  1088→                    style={drawingStyle}
+   290→  1089→  1089→                  >
+   291→  1090→  1090→                    <div className="absolute -top-5 left-0 text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded whitespace-nowrap">
+   292→  1091→  1091→                      {Math.round(Math.abs(drawingRect!.endX - drawingRect!.startX))}×{Math.round(Math.abs(drawingRect!.endY - drawingRect!.startY))}
+   293→  1092→  1092→                    </div>
+   294→  1093→  1093→                  </div>
+   295→  1094→  1094→                )}
+   296→  1095→  1095→
+   297→  1096→  1096→                {/* Confirmed rectangle with overlay */}
+   298→  1097→  1097→                {confirmedStyle && confirmedDrawRect && (
+   299→  1098→  1098→                  <div className="absolute inset-0 z-10">
+   300→  1099→  1099→                    <div className="absolute inset-0 bg-black/50" />
+   301→  1100→  1100→                    <div
+   302→  1101→  1101→                      className="absolute border-2 border-primary bg-transparent"
+   303→  1102→  1102→                      style={confirmedStyle}
+   304→  1103→  1103→                    >
+   305→  1104→  1104→                      <div className="absolute -top-5 left-0 text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded whitespace-nowrap">
+   306→  1105→  1105→                        {Math.round(confirmedDrawRect.width)}×{Math.round(confirmedDrawRect.height)} px
+   307→  1106→  1106→                      </div>
+   308→  1107→  1107→                    </div>
+   309→  1108→  1108→                  </div>
+   310→  1109→  1109→                )}
+   311→  1110→  1110→
+   312→  1111→  1111→                {/* Current crop region indicator */}
+   313→  1112→  1112→                {cropEnabled && storeCropRegion && !isSelectingRegion && (
+   314→  1113→  1113→                  <div className="absolute inset-0 z-10 pointer-events-none">
+   315→  1114→  1114→                    <div className="absolute inset-0 bg-black/30" />
+   316→  1115→  1115→                    <div
+   317→  1116→  1116→                      className="absolute border-2 border-green-500 bg-transparent"
+   318→  1117→  1117→                      style={{
+   319→  1118→  1118→                        left: `${storeCropRegion.x * 100}%`,
+   320→  1119→  1119→                        top: `${storeCropRegion.y * 100}%`,
+   321→  1120→  1120→                        width: `${storeCropRegion.width * 100}%`,
+   322→  1121→  1121→                        height: `${storeCropRegion.height * 100}%`,
+   323→  1122→  1122→                      }}
+   324→  1123→  1123→                    />
+   325→  1124→  1124→                  </div>
+   326→  1125→  1125→                )}
+   327→  1126→  1126→              </div>
+   328→  1127→  1127→
+   329→  1128→  1128→              {!isSelectingRegion && !cropEnabled && (
+   330→  1129→  1129→                <p className="text-xs text-muted-foreground">
+   331→  1130→  1130→                  {rt('player.cropHint')}
+   332→  1131→  1131→                </p>
+   333→  1132→  1132→              )}
+   334→  1133→  1133→            </CardContent>
+   335→  1134→  1134→          </Card>
+   336→  1135→  1135→        )}
+   337→  1136→  1136→
+   338→  1137→  1137→        {/* VR Canvas */}
+   339→  1138→  1138→        <div
+   340→  1139→  1139→          ref={containerRef}
+   341→  1140→  1140→          className="relative rounded-lg overflow-hidden bg-black border"
+   342→  1141→  1141→          style={{ height: showPreview ? '60vh' : '100vh' }}
+   343→  1142→  1142→        >
+   344→  1143→  1143→          <canvas
+   345→  1144→  1144→            ref={canvasRef}
+   346→  1145→  1145→            className="w-full h-full touch-none"
+   347→  1146→  1146→            onPointerDown={handlePointerDown}
+   348→  1147→  1147→            onPointerMove={handlePointerMove}
+   349→  1148→  1148→            onPointerUp={handlePointerUp}
+   350→  1149→  1149→            onPointerCancel={handlePointerUp}
+   351→  1150→  1150→          />
+   352→  1151→  1151→
+   353→  1152→  1152→          {isInitializing && (
+   354→  1153→  1153→            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+   355→  1154→  1154→              <div className="text-center space-y-2">
+   356→  1155→  1155→                <RotateCcw className="w-8 h-8 animate-spin text-primary mx-auto" />
+   357→  1156→  1156→                <p className="text-sm text-muted-foreground">{t('player.initializing')}</p>
+   358→  1157→  1157→              </div>
+   359→  1158→  1158→            </div>
+   360→  1159→  1159→          )}
+   361→  1160→  1160→
+   362→  1161→  1161→          {!hasVideo && !isInitializing && !videoError && (
+   363→  1162→  1162→            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+   364→  1163→  1163→              <div className="text-center space-y-3">
+   365→  1164→  1164→                <Monitor className="w-12 h-12 text-muted-foreground mx-auto" />
+   366→  1165→  1165→                <p className="text-sm text-muted-foreground">{t('player.noVideoSource')}</p>
+   367→  1166→  1166→                <p className="text-xs text-muted-foreground max-w-md mx-auto">
+   368→  1167→  1167→                  {t('player.noVideoSourceDesc')}
+   369→  1168→  1168→                </p>
+   370→  1169→  1169→                <div className="flex gap-2 justify-center">
+   371→  1170→  1170→                  <Button size="sm" onClick={handleScreenCapture}>
+   372→  1171→  1171→                    <Monitor className="w-4 h-4 mr-1" /> {t('player.screenCapture')}
+   373→  1172→  1172→                  </Button>
+   374→  1173→  1173→                  <Button size="sm" variant="outline" onClick={handleTestPattern}>
+   375→  1174→  1174→                    <TestTube className="w-4 h-4 mr-1" /> {t('player.testPattern')}
+   376→  1175→  1175→                  </Button>
+   377→  1176→  1176→                </div>
+   378→  1177→  1177→              </div>
+   379→  1178→  1178→            </div>
+   380→  1179→  1179→          )}
+   381→  1180→  1180→
+   382→  1181→  1181→          {hasVideo && showPreview && !isInitializing && (
+   383→  1182→  1182→            <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+   384→  1183→  1183→              <p className="text-xs text-white/60 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-sm">
+   385→  1184→  1184→                {t('player.dragHint')}
+   386→  1185→  1185→              </p>
+   387→  1186→  1186→            </div>
+   388→  1187→  1187→          )}
+   389→  1188→  1188→        </div>
+   390→  1189→  1189→
+   391→  1190→  1190→        {/* Controls */}
+   392→  1191→  1191→        <div className="flex items-center justify-between gap-4">
+   393→  1192→  1192→          <div className="flex items-center gap-2">
+   394→  1193→  1193→            <Tooltip>
+   395→  1194→  1194→              <TooltipTrigger asChild>
+   396→  1195→  1195→                <Button size="sm" variant="outline" onClick={handlePlayPause} disabled={!hasVideo} aria-label={isPlaying ? 'Pause' : 'Play'}>
+   397→  1196→  1196→                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+   398→  1197→  1197→                </Button>
+   399→  1198→  1198→              </TooltipTrigger>
+   400→  1199→  1199→              <TooltipContent>{t('player.playPause')}</TooltipContent>
+   401→  1200→  1200→            </Tooltip>
+   402→  1201→  1201→            <Tooltip>
+   403→  1202→  1202→              <TooltipTrigger asChild>
+   404→  1203→  1203→                <Button size="sm" variant="outline" onClick={handleMuteToggle} disabled={!hasVideo} aria-label={isMuted ? 'Unmute' : 'Mute'}>
+   405→  1204→  1204→                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+   406→  1205→  1205→                </Button>
+   407→  1206→  1206→              </TooltipTrigger>
+   408→  1207→  1207→              <TooltipContent>{t('player.muteUnmute')}</TooltipContent>
+   409→  1208→  1208→            </Tooltip>
+   410→  1209→  1209→            {captureMode === 'screen' && (
+   411→  1210→  1210→              <Tooltip>
+   412→  1211→  1211→                <TooltipTrigger asChild>
+   413→  1212→  1212→                  <Button size="sm" variant={cropEnabled ? 'default' : 'outline'} onClick={handleToggleCrop} aria-label={t('player.toggleCrop')}>
+   414→  1213→  1213→                    <Crop className="w-4 h-4" />
+   415→  1214→  1214→                  </Button>
+   416→  1215→  1215→                </TooltipTrigger>
+   417→  1216→  1216→                <TooltipContent>
+   418→  1217→  1217→                  {cropEnabled ? t('player.disableCrop') : t('player.selectRegionCrop')}
+   419→  1218→  1218→                </TooltipContent>
+   420→  1219→  1219→              </Tooltip>
+   421→  1220→  1220→            )}
+   422→  1221→  1221→          </div>
+   423→  1222→  1222→
+   424→  1223→  1223→          <div className="flex items-center gap-2">
+   425→  1224→  1224→            <Tooltip>
+   426→  1225→  1225→              <TooltipTrigger asChild>
+   427→  1226→  1226→                <Button size="sm" variant="outline" onClick={handleTestPattern} aria-label={t('player.loadTestPattern')}>
+   428→  1227→  1227→                  <TestTube className="w-4 h-4" /><span className="hidden sm:inline ml-1">{t('player.demo')}</span>
+   429→  1228→  1228→                </Button>
+   430→  1229→  1229→              </TooltipTrigger>
+   431→  1230→  1230→              <TooltipContent>{t('player.loadTestPattern')}</TooltipContent>
+   432→  1231→  1231→            </Tooltip>
+   433→  1232→  1232→            <Tooltip>
+   434→  1233→  1233→              <TooltipTrigger asChild>
+   435→  1234→  1234→                <Button size="sm" onClick={handleScreenCapture} aria-label={t('player.capture')}>
+   436→  1235→  1235→                  <Monitor className="w-4 h-4 mr-1" /> {t('player.capture')}
+   437→  1236→  1236→                </Button>
+   438→  1237→  1237→              </TooltipTrigger>
+   439→  1238→  1238→              <TooltipContent>{t('player.captureTooltip')}</TooltipContent>
+   440→  1239→  1239→            </Tooltip>
+   441→  1240→  1240→            <Tooltip>
+   442→  1241→  1241→              <TooltipTrigger asChild>
+   443→  1242→  1242→                <Button size="sm" variant="outline" onClick={handleEnterFullscreen} aria-label={t('player.enterFullscreen')}>
+   444→  1243→  1243→                  <Maximize className="w-4 h-4" /><span className="hidden sm:inline ml-1">{t('player.fullscreen')}</span>
+   445→  1244→  1244→                </Button>
+   446→  1245→  1245→              </TooltipTrigger>
+   447→  1246→  1246→              <TooltipContent>{t('player.enterFullscreen')}</TooltipContent>
+   448→  1247→  1247→            </Tooltip>
+   449→  1248→  1248→            {isVRSupported && !isInVR && (
+   450→  1249→  1249→              <Tooltip>
+   451→  1250→  1250→                <TooltipTrigger asChild>
+   452→  1251→  1251→                  <Button size="sm" onClick={handleEnterVR}>
+   453→  1252→  1252→                    <Glasses className="w-4 h-4 mr-1" /> {t('player.enterVR')}
+   454→  1253→  1253→                  </Button>
+   455→  1254→  1254→                </TooltipTrigger>
+   456→  1255→  1255→                <TooltipContent>{t('player.enterVRTooltip')}</TooltipContent>
+   457→  1256→  1256→              </Tooltip>
+   458→  1257→  1257→            )}
+   459→  1258→  1258→            {isInVR && (
+   460→  1259→  1259→              <Tooltip>
+   461→  1260→  1260→                <TooltipTrigger asChild>
+   462→  1261→  1261→                  <Button size="sm" variant="destructive" onClick={handleExitVR}>
+   463→  1262→  1262→                    <LogOut className="w-4 h-4 mr-1" /> {t('player.exitVR')}
+   464→  1263→  1263→                  </Button>
+   465→  1264→  1264→                </TooltipTrigger>
+   466→  1265→  1265→                <TooltipContent>{t('player.exitVRTooltip')}</TooltipContent>
+   467→  1266→  1266→              </Tooltip>
+   468→  1267→  1267→            )}
+   469→  1268→  1268→          </div>
+   470→  1269→  1269→        </div>
+   471→  1270→  1270→
+   472→  1271→  1271→        {/* VR not supported */}
+   473→  1272→  1272→        {!isVRSupported && !isInitializing && (
+   474→  1273→  1273→          <Card>
+   475→  1274→  1274→            <CardContent className="pt-4 pb-4">
+   476→  1275→  1275→              <div className="flex items-start gap-3">
+   477→  1276→  1276→                <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+   478→  1277→  1277→                <div className="text-sm space-y-1">
+   479→  1278→  1278→                  <p className="font-medium">{t('player.vrNotAvailable')}</p>
+   480→  1279→  1279→                  <p className="text-muted-foreground">
+   481→  1280→  1280→                    {t('player.vrNotAvailableDesc')}
+   482→  1281→  1281→                  </p>
+   483→  1282→  1282→                  <div className="mt-2 p-2 rounded bg-muted text-xs space-y-1">
+   484→  1283→  1283→                    <p className="font-medium">{t('player.setupGuide')}</p>
+   485→  1284→  1284→                    <ol className="list-decimal list-inside space-y-0.5 text-muted-foreground">
+   486→  1285→  1285→                      <li>{t('player.setupGuide.step1')}</li>
+   487→  1286→  1286→                      <li>{t('player.setupGuide.step2')}</li>
+   488→  1287→  1287→                      <li>{t('player.setupGuide.step3')}</li>
+   489→  1288→  1288→                      <li>{t('player.setupGuide.step4')}</li>
+   490→  1289→  1289→                    </ol>
+   491→  1290→  1290→                  </div>
+   492→  1291→  1291→                </div>
+   493→  1292→  1292→              </div>
+   494→  1293→  1293→            </CardContent>
+   495→  1294→  1294→          </Card>
+   496→  1295→  1295→        )}
+   497→  1296→  1296→      </div>
+   498→  1297→  1297→    </TooltipProvider>
+   499→  1298→  1298→  );
+   500→  1299→  1299→}
+   501→  1300→  1300→
+   502→  1301→  1301→// ====== Create VR Meshes ======
+   503→  1302→  1302→
+   504→  1303→  1303→function createVRMeshes(
+   505→  1304→  1304→  texture: THREE.Texture,
+   506→  1305→  1305→  layout: StereoLayout,
+   507→  1306→  1306→  projection: ProjectionType,
+   508→  1307→  1307→  fov: number
+   509→  1308→  1308→): THREE.Mesh[] {
+   510→  1309→  1309→  const meshes: THREE.Mesh[] = [];
+   511→  1310→  1310→
+   512→  1311→  1311→  function createGeometry(phiLength: number): THREE.BufferGeometry {
+   513→  1312→  1312→    switch (projection) {
+   514→  1313→  1313→      case 'sphere360':
+   515→  1314→  1314→        return new THREE.SphereGeometry(500, 80, 40, 0, phiLength);
+   516→  1315→  1315→      case 'hemisphere180':
+   517→  1316→  1316→        return new THREE.SphereGeometry(500, 80, 40, 0, phiLength);
+   518→  1317→  1317→      case 'cylinder': {
+   519→  1318→  1318→        const fovRad = (fov * Math.PI) / 180;
+   520→  1319→  1319→        const radius = 500;
+   521→  1320→  1320→        return new THREE.CylinderGeometry(radius, radius, radius * 0.5625, 64, 1, true, -fovRad / 2 + Math.PI / 2, fovRad);
+   522→  1321→  1321→      }
+   523→  1322→  1322→      default:
+   524→  1323→  1323→        return new THREE.SphereGeometry(500, 80, 40, 0, phiLength);
+   525→  1324→  1324→    }
+   526→  1325→  1325→  }
+   527→  1326→  1326→
+   528→  1327→  1327→  function modifyUVs(geometry: THREE.BufferGeometry, region: { x: number; y: number; w: number; h: number }): THREE.BufferGeometry {
+   529→  1328→  1328→    const uvAttr = geometry.getAttribute('uv');
+   530→  1329→  1329→    if (!uvAttr) return geometry;
+   531→  1330→  1330→    const uvArray = uvAttr.array as Float32Array;
+   532→  1331→  1331→    for (let i = 0; i < uvArray.length; i += 2) {
+   533→  1332→  1332→      uvArray[i] = region.x + uvArray[i] * region.w;
+   534→  1333→  1333→      uvArray[i + 1] = region.y + uvArray[i + 1] * region.h;
+   535→  1334→  1334→    }
+   536→  1335→  1335→    uvAttr.needsUpdate = true;
+   537→  1336→  1336→    return geometry;
+   538→  1337→  1337→  }
+   539→  1338→  1338→
+   540→  1339→  1339→  const phiLength =
+   541→  1340→  1340→    projection === 'sphere360' ? 2 * Math.PI :
+   542→  1341→  1341→    projection === 'hemisphere180' ? Math.PI :
+   543→  1342→  1342→    (fov * Math.PI) / 180;
+   544→  1343→  1343→
+   545→  1344→  1344→  switch (layout) {
+   546→  1345→  1345→    case 'sbs': {
+   547→  1346→  1346→      const leftGeom = createGeometry(phiLength);
+   548→  1347→  1347→      modifyUVs(leftGeom, { x: 0, y: 0, w: 0.5, h: 1 });
+   549→  1348→  1348→      const leftMesh = new THREE.Mesh(leftGeom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   550→  1349→  1349→      leftMesh.layers.set(1);
+   551→  1350→  1350→      meshes.push(leftMesh);
+   552→  1351→  1351→
+   553→  1352→  1352→      const rightGeom = createGeometry(phiLength);
+   554→  1353→  1353→      modifyUVs(rightGeom, { x: 0.5, y: 0, w: 0.5, h: 1 });
+   555→  1354→  1354→      const rightMesh = new THREE.Mesh(rightGeom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   556→  1355→  1355→      rightMesh.layers.set(2);
+   557→  1356→  1356→      meshes.push(rightMesh);
+   558→  1357→  1357→      break;
+   559→  1358→  1358→    }
+   560→  1359→  1359→    case 'tb': {
+   561→  1360→  1360→      const leftGeom = createGeometry(phiLength);
+   562→  1361→  1361→      modifyUVs(leftGeom, { x: 0, y: 0.5, w: 1, h: 0.5 });
+   563→  1362→  1362→      const leftMesh = new THREE.Mesh(leftGeom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   564→  1363→  1363→      leftMesh.layers.set(1);
+   565→  1364→  1364→      meshes.push(leftMesh);
+   566→  1365→  1365→
+   567→  1366→  1366→      const rightGeom = createGeometry(phiLength);
+   568→  1367→  1367→      modifyUVs(rightGeom, { x: 0, y: 0, w: 1, h: 0.5 });
+   569→  1368→  1368→      const rightMesh = new THREE.Mesh(rightGeom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   570→  1369→  1369→      rightMesh.layers.set(2);
+   571→  1370→  1370→      meshes.push(rightMesh);
+   572→  1371→  1371→      break;
+   573→  1372→  1372→    }
+   574→  1373→  1373→    case 'mono': {
+   575→  1374→  1374→      const geom = createGeometry(phiLength);
+   576→  1375→  1375→      const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
+   577→  1376→  1376→      mesh.layers.enable(1);
+   578→  1377→  1377→      mesh.layers.enable(2);
+   579→  1378→  1378→      meshes.push(mesh);
+   580→  1379→  1379→      break;
+   581→  1380→  1380→    }
+   582→  1381→  1381→  }
+   583→  1382→  1382→  return meshes;
+   584→  1383→  1383→}
+   585→  1384→  1384→

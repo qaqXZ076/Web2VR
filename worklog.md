@@ -265,3 +265,20 @@ Stage Summary:
 - Three packaging scripts created (cross-platform JS, Linux shell, Windows batch)
 - Both Linux and Windows packages verified to build and contain correct files
 - Package structure: dist/{app-name}/app/ (Next.js) + node-runtime/ (Node.js) + start.sh/bat + README.md
+---
+Task ID: mirror-fix
+Agent: Main
+Task: Fix VR video mirroring issue - video appears horizontally flipped in VR
+
+Work Log:
+- Analyzed the createVRMeshes function in vr-player.tsx
+- Identified root cause: When viewing the inside of a SphereGeometry/CylinderGeometry with BackSide material, the UV U coordinate runs in the "wrong" direction relative to the viewer, causing a horizontal mirror effect
+- Applied fix in modifyUVs function: changed `uvArray[i] = region.x + uvArray[i] * region.w` to `uvArray[i] = region.x + (1.0 - uvArray[i]) * region.w`
+- The (1.0 - u) flip corrects the mirroring for all projection types (sphere360, hemisphere180, cylinder) and all stereo layouts (sbs, tb, mono)
+- Lint passes, dev server compiles successfully
+- Browser verification confirms page loads correctly
+
+Stage Summary:
+- Mirroring fix applied by flipping U coordinate in modifyUVs function
+- The fix works for all projection types and stereo layouts
+- No other code changes needed
