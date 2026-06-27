@@ -95,7 +95,8 @@ Output archives are placed in the `dist/` directory, each containing a bundled N
  > Select region
  > ![[Options]Select reigon](./images/4clip.jpg)
 4. **Choose a VR preset** — Select the appropriate preset (e.g. VR180 SBS, VR360 TB) from the settings panel.
-5. **Enter VR** — Click "Enter VR" to start immersive viewing in your headset.
+5. **Set the video to fullscreen** - Now you can set the video you just opened to full screen. This makes it convenient to operate videos in full screen, fitting them perfectly within the tab.
+6. **Enter VR** — Click "Enter VR" to start immersive viewing in your headset.
 ![Press "Enter VR" and Enjoy!](./images/3entervr.jpg)
 
 ## 🛠️ Tech Stack
