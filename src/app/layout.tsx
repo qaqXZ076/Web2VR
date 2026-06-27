@@ -13,21 +13,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WebXR VR Video Player — VR180/360 to SteamVR",
-  description: "Convert web-based VR180/360 side-by-side videos into WebXR format for SteamVR viewing. Supports multiple projection types and stereo layouts.",
-  keywords: ["WebXR", "VR", "VR180", "VR360", "SteamVR", "Side-by-Side", "3D Video"],
-  authors: [{ name: "WebXR VR Player" }],
+  title: "Web2VR — Watch Web Videos in SteamVR",
+  description: "Capture browser tabs and watch VR180/360 videos in your VR headset via SteamVR. Supports sphere, hemisphere, and cylinder projections.",
+  keywords: ["Web2VR", "WebXR", "VR", "VR180", "VR360", "SteamVR", "Side-by-Side", "3D Video"],
+  authors: [{ name: "Web2VR" }],
   icons: {
     icon: "/logo.svg",
   },
   openGraph: {
-    title: "WebXR VR Video Player",
+    title: "Web2VR",
     description: "Convert web VR videos for SteamVR viewing",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "WebXR VR Video Player",
+    title: "Web2VR",
     description: "Convert web VR videos for SteamVR viewing",
   },
 };

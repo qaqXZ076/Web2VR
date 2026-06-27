@@ -1,8 +1,8 @@
 {
-  "name": "webxr-vr-player",
+  "name": "web2vr",
   "version": "1.0.0",
   "private": true,
-  "description": "WebXR VR video player — capture browser tabs and watch VR180/360 videos in SteamVR via Chrome Screen Capture API",
+  "description": "Web2VR — Capture browser tabs and watch VR180/360 videos in SteamVR via Chrome Screen Capture API",
   "license": "MIT",
   "scripts": {
     "dev": "next dev -p 3000",

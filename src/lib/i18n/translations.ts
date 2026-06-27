@@ -2,7 +2,7 @@ export type Locale = 'en' | 'zh';
 
 export const translations: Record<string, Record<Locale, string>> = {
   // ====== Landing Page ======
-  'landing.title': { en: 'WebXR VR Video Player', zh: 'WebXR VR 视频播放器' },
+  'landing.title': { en: 'Web2VR', zh: 'Web2VR' },
   'landing.subtitle': { en: 'Watch VR180/360 side-by-side videos from any website in your VR headset via SteamVR', zh: '通过 SteamVR 在 VR 头显中观看任意网站的 VR180/360 并排视频' },
   'landing.howItWorks': { en: 'How It Works', zh: '工作原理' },
   'landing.step1Title': { en: '1. Open Video', zh: '1. 打开视频' },
@@ -134,8 +134,8 @@ export const translations: Record<string, Record<Locale, string>> = {
   'error.screenCaptureAborted': { en: 'Screen capture was aborted', zh: '屏幕捕获已中止' },
 
   // ====== Header / Footer ======
-  'app.title': { en: 'WebXR VR Player', zh: 'WebXR VR 播放器' },
-  'footer.left': { en: 'WebXR VR Video Player — Capture any website\'s VR video for SteamVR', zh: 'WebXR VR 视频播放器 — 捕获任意网站的 VR 视频用于 SteamVR' },
+  'app.title': { en: 'Web2VR', zh: 'Web2VR' },
+  'footer.left': { en: 'Web2VR — Capture any website\'s VR video for SteamVR', zh: 'Web2VR — 捕获任意网站的 VR 视频用于 SteamVR' },
   'footer.right': { en: 'Requires WebXR-compatible browser & VR headset', zh: '需要支持 WebXR 的浏览器和 VR 头显' },
   'header.capture': { en: 'Capture', zh: '捕获' },
   'header.vr': { en: 'VR', zh: 'VR' },
