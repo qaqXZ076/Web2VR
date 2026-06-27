@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /* eslint-disable @typescript-eslint/no-require-imports */
 // ============================================================================
-// Package WebXR VR Video Player — Cross-platform packager
+// Package Web2VR — Cross-platform packager
 //
 // Produces portable, no-install archives:
-//   - Linux x86_64:  dist/webxr-vr-player-linux-x64-vX.Y.Z.tar.gz
-//   - Windows x86_4: dist/webxr-vr-player-win-x64-vX.Y.Z.zip
-//   - macOS arm64:   dist/webxr-vr-player-darwin-arm64-vX.Y.Z.tar.gz
+//   - Linux x86_64:  dist/Web2VR-linux-x64-vX.Y.Z.tar.gz
+//   - Windows x86_4: dist/Web2VR-win-x64-vX.Y.Z.zip
+//   - macOS arm64:   dist/Web2VR-darwin-arm64-vX.Y.Z.tar.gz
 //
 // Usage:
 //   node scripts/package.js                # package for current platform
@@ -25,11 +25,11 @@ const { pipeline } = require('stream/promises');
 
 // ---- Configuration ----
 const NODE_VERSION = 'v22.16.0';
-const APP_NAME = 'webxr-vr-player';
+const APP_NAME = 'Web2VR';
 const PROJECT_DIR = path.resolve(__dirname, '..');
 
 // Read version from package.json
-let VERSION = '0.2.0';
+let VERSION = '1.0.0';
 try {
   VERSION = require(path.join(PROJECT_DIR, 'package.json')).version;
 } catch {}
@@ -142,7 +142,7 @@ function createLauncher(stageDir, platform, platformKey) {
   if (isWin) {
     // .bat launcher
     const bat = `@echo off
-REM WebXR VR Video Player - Windows Launcher
+REM Web2VR - Windows Launcher
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
@@ -153,7 +153,7 @@ if "%PORT%"=="" set "PORT=3000"
 if "%HOST%"=="" set "HOST=0.0.0.0"
 
 echo ============================================
-echo  WebXR VR Video Player
+echo  Web2VR v${VERSION}
 echo  Starting on http://localhost:%PORT%
 echo ============================================
 echo.
@@ -166,7 +166,7 @@ pause
     fs.writeFileSync(path.join(stageDir, 'start.bat'), bat);
 
     // .ps1 launcher
-    const ps1 = `# WebXR VR Video Player - PowerShell Launcher
+    const ps1 = `# Web2VR - PowerShell Launcher
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Node = Join-Path $ScriptDir 'node-runtime\\node.exe'
 $Server = Join-Path $ScriptDir 'app\\server.js'
@@ -175,7 +175,7 @@ $env:PORT = if ($env:PORT) { $env:PORT } else { '3000' }
 $env:HOSTNAME = if ($env:HOSTNAME) { $env:HOSTNAME } else { '0.0.0.0' }
 
 Write-Host "============================================"
-Write-Host " WebXR VR Video Player"
+Write-Host " Web2VR v${VERSION}"
 Write-Host " Starting on http://localhost:$env:PORT"
 Write-Host "============================================"
 Write-Host ""
@@ -187,7 +187,7 @@ Write-Host ""
   } else {
     // Unix shell launcher
     const sh = `#!/usr/bin/env bash
-# WebXR VR Video Player - Launcher
+# Web2VR - Launcher
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
@@ -198,7 +198,7 @@ PORT="\${PORT:-3000}"
 HOST="\${HOST:-0.0.0.0}"
 
 echo "============================================"
-echo " WebXR VR Video Player"
+echo " Web2VR v${VERSION}"
 echo " Starting on http://localhost:$PORT"
 echo "============================================"
 echo ""
@@ -214,7 +214,7 @@ exec "$NODE" "$SERVER"
   }
 
   // Create README
-  const readme = `# WebXR VR Video Player v${VERSION}
+  const readme = `# Web2VR v${VERSION}
 
 ## Quick Start
 

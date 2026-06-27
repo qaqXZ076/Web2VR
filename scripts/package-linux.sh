@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Package WebXR VR Video Player for Linux (x86_64)
-# Produces a portable, no-install archive: dist/webxr-vr-player-linux-x64.tar.gz
+# Package Web2VR for Linux (x86_64)
+# Produces a portable, no-install archive: dist/Web2VR-linux-x64.tar.gz
 #
 # Prerequisites on the build machine:
 #   - Node.js >= 18 (for next build)
@@ -16,8 +16,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_NAME="webxr-vr-player"
-VERSION="$(node -p "require('$PROJECT_DIR/package.json').version" 2>/dev/null || echo '0.2.0')"
+APP_NAME="Web2VR"
+VERSION="$(node -p "require('$PROJECT_DIR/package.json').version" 2>/dev/null || echo '1.0.0')"
 NODE_VERSION="v22.16.0"
 NODE_PLATFORM="linux-x64"
 DIST_DIR="$PROJECT_DIR/dist"
@@ -87,7 +87,7 @@ fi
 echo "[5/6] Creating launcher script..."
 cat > "$STAGE_DIR/start.sh" << 'LAUNCHER'
 #!/usr/bin/env bash
-# WebXR VR Video Player - Linux Launcher
+# Web2VR - Linux Launcher
 # Starts the server on port 3000 and opens the browser.
 
 set -e
@@ -101,7 +101,7 @@ PORT="${PORT:-3000}"
 HOST="${HOST:-0.0.0.0}"
 
 echo "============================================"
-echo " WebXR VR Video Player"
+echo " Web2VR"
 echo " Starting on http://localhost:$PORT"
 echo "============================================"
 echo ""

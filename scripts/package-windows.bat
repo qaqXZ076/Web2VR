@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================================
-REM Package WebXR VR Video Player for Windows (x86_64)
-REM Produces a portable, no-install archive: dist\webxr-vr-player-win-x64.zip
+REM Package Web2VR for Windows (x86_64)
+REM Produces a portable, no-install archive: dist\Web2VR-win-x64.zip
 REM
 REM Prerequisites on the build machine:
 REM   - Node.js >= 18 (for next build)
@@ -16,10 +16,10 @@ setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 set "PROJECT_DIR=%SCRIPT_DIR%.."
-set "APP_NAME=webxr-vr-player"
+set "APP_NAME=Web2VR"
 
 REM Read version from package.json
-set "VERSION=0.2.0"
+set "VERSION=1.0.0"
 for /f "usebackq delims=" %%v in (`node -p "require('%PROJECT_DIR%/package.json').version" 2^>nul`) do set "VERSION=%%v"
 
 set "NODE_VERSION=v22.16.0"
@@ -29,7 +29,7 @@ set "STAGE_DIR=%DIST_DIR%\%APP_NAME%"
 set "ARCHIVE_NAME=%APP_NAME%-win-x64-v%VERSION%.zip"
 
 echo ============================================
-echo  Packaging %APP_NAME% v%VERSION% for Windows x86_64
+echo  Packaging %APP_NAME% v%VERSION% for Windows x64
 echo ============================================
 echo.
 
@@ -97,7 +97,7 @@ echo [5/6] Creating launcher script...
 
 (
 echo @echo off
-echo REM WebXR VR Video Player - Windows Launcher
+echo REM Web2VR - Windows Launcher
 echo REM Starts the server on port 3000 and opens the browser.
 echo.
 echo setlocal
@@ -111,7 +111,7 @@ echo if "%%PORT%%"=="" set "PORT=3000"
 echo if "%%HOST%%"=="" set "HOST=0.0.0.0"
 echo.
 echo echo ============================================
-echo echo  WebXR VR Video Player
+echo echo  Web2VR v%VERSION%
 echo echo  Starting on http://localhost:%%PORT%%
 echo echo ============================================
 echo echo.
@@ -125,7 +125,7 @@ echo pause
 
 REM Also create a start.ps1 for PowerShell users
 (
-echo # WebXR VR Video Player - PowerShell Launcher
+echo # Web2VR - PowerShell Launcher
 echo $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 echo $Node = Join-Path $ScriptDir 'node-runtime\node.exe'
 echo $Server = Join-Path $ScriptDir 'app\server.js'
@@ -134,7 +134,7 @@ echo $env:PORT = if ($env:PORT) { $env:PORT } else { '3000' }
 echo $env:HOSTNAME = if ($env:HOSTNAME) { $env:HOSTNAME } else { '0.0.0.0' }
 echo.
 echo Write-Host "============================================"
-echo Write-Host " WebXR VR Video Player"
+echo Write-Host " Web2VR v%VERSION%"
 echo Write-Host " Starting on http://localhost:$env:PORT"
 echo Write-Host "============================================"
 echo Write-Host ""
